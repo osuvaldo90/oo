@@ -215,7 +215,7 @@ MAX_NAME = 80  # the longest name Ona takes for an environment
 
 # What oo new can do once the environment is ready, in the order it does them. ssh comes
 # last because it replaces oo.
-THEN = ("open", "claude", "ssh", "none")
+THEN = ("code", "claude", "ssh", "none")
 
 
 def _complete_then(incomplete: str) -> list[str]:
@@ -252,13 +252,13 @@ EPILOG = (
     "  [cyan]oo c login-fix[/]               SSH into the one on adam/login-fix\n"
     "  [cyan]oo c[/]                         …the only running one, or pick from a list\n"
     "  [cyan]oo c login -- git status[/]     run a command instead of a shell\n"
-    "  [cyan]oo open login -e cursor[/]      open it in Cursor\n"
+    "  [cyan]oo code login -e cursor[/]      open it in Cursor\n"
     "  [cyan]oo claude login[/]              open it in the Claude desktop app\n"
     "  [cyan]oo cp notes.md login:[/]        copy a file into its repo\n"
     "  [cyan]oo cp login:out.csv .[/]        …or out of it\n"
     "  [cyan]oo new[/]                       create an environment and connect to it\n"
     "  [cyan]oo new -b pr-9[/]               …check out branch pr-9 first\n"
-    "  [cyan]oo new -t open,ssh[/]           …open it in your editor, then connect\n"
+    "  [cyan]oo new -t code,ssh[/]           …open it in your editor, then connect\n"
     "  [cyan]oo stop --all[/]                stop everything that's running\n"
     "  [cyan]ona env logs $(oo id login)[/]  hand an ID to any other ona command\n\n"
     "[bold]Branch prefix[/]\n\n"
@@ -313,8 +313,8 @@ def connect(
     ona.replace_with("environment", "ssh", env.id, *(["--", *command] if command else []))
 
 
-@app.command("open")
-def open_(branch: MaybeBranch = None, editor: Editor = None) -> None:
+@app.command()
+def code(branch: MaybeBranch = None, editor: Editor = None) -> None:
     """Open an environment in your editor, starting it first if it's stopped."""
     env = _choose(_load(), branch, "open")
     notes = [_start_if_stopped(env), f"in {editor}" if editor else ""]
@@ -550,10 +550,10 @@ def new(
         typer.Option(
             "--then",
             "-t",
-            help="What to do once it's ready: [bold]ssh[/] (the default), [bold]open[/] to open "
+            help="What to do once it's ready: [bold]ssh[/] (the default), [bold]code[/] to open "
             "it in your editor, [bold]claude[/] to open it in the Claude desktop app, or "
-            "[bold]none[/]. Give more than one, like [bold]-t open -t ssh[/] or "
-            "[bold]-t open,ssh[/]; ssh always goes last.",
+            "[bold]none[/]. Give more than one, like [bold]-t code -t ssh[/] or "
+            "[bold]-t code,ssh[/]; ssh always goes last.",
             autocompletion=_complete_then,
             show_default=False,
         ),
@@ -623,7 +623,7 @@ def new(
     if steps == ["none"]:
         render.success(err, f"Created {render.names([created])}", note)
         return
-    if "open" in steps:
+    if "code" in steps:
         _open_in_editor(created, editor, note)
         note = ""
     if "claude" in steps:

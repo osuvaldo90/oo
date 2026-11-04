@@ -149,10 +149,16 @@ def test_ambiguous_branch_is_an_error(calls):
     assert calls == []
 
 
-def test_open_uses_the_editor_from_the_environment(calls, monkeypatch):
+def test_code_uses_the_editor_from_the_environment(calls, monkeypatch):
     monkeypatch.setenv("OO_EDITOR", "cursor")
-    oo("open", "docs")
+    oo("code", "docs")
     assert calls[-1] == ("environment", "open", "33333333-cccc", "--start", "--editor", "cursor")
+
+
+def test_open_is_now_code(calls):
+    result = oo("open", "docs")
+    assert result.exit_code == 2
+    assert calls == []
 
 
 def test_claude_opens_the_only_running_one_in_the_desktop_app(calls):
@@ -551,7 +557,7 @@ NEW_LINK = (
 
 
 @pytest.mark.parametrize(
-    "then", [["-t", "open", "-t", "ssh"], ["-t", "ssh,open"], ["--then", "SSH, open"]]
+    "then", [["-t", "code", "-t", "ssh"], ["-t", "ssh,code"], ["--then", "SSH, code"]]
 )
 def test_new_then_opens_the_editor_before_connecting(calls, monkeypatch, then):
     monkeypatch.delenv("OO_EDITOR", raising=False)
@@ -564,22 +570,22 @@ def test_new_then_opens_the_editor_before_connecting(calls, monkeypatch, then):
     ]
 
 
-def test_new_then_open_uses_the_editor_you_name(calls, monkeypatch):
+def test_new_then_code_uses_the_editor_you_name(calls, monkeypatch):
     monkeypatch.setenv("OO_EDITOR", "vscode")
-    oo("new", "-t", "open", "-e", "cursor")
+    oo("new", "-t", "code", "-e", "cursor")
     assert calls[-1] == ("environment", "open", "99999999-new", "--editor", "cursor")
 
 
-def test_new_then_open_uses_oo_editor(calls, monkeypatch):
+def test_new_then_code_uses_oo_editor(calls, monkeypatch):
     monkeypatch.setenv("OO_EDITOR", "cursor")
-    result = oo("new", "-t", "open")
+    result = oo("new", "-t", "code")
     assert result.exit_code == 0
     assert calls == [CREATE, ("environment", "open", "99999999-new", "--editor", "cursor")]
 
 
 def test_new_then_does_each_step_once(calls, monkeypatch):
     monkeypatch.delenv("OO_EDITOR", raising=False)
-    oo("new", "-t", "open", "-t", "open,open")
+    oo("new", "-t", "code", "-t", "code,code")
     assert calls == [CREATE, ("environment", "open", "99999999-new")]
 
 
@@ -601,7 +607,7 @@ def test_new_then_none_only_creates(calls):
     ("then", "says"),
     [
         (["-t", "none", "-t", "ssh"], "--then none can't go with other steps."),
-        (["-t", "none,open"], "--then none can't go with other steps."),
+        (["-t", "none,code"], "--then none can't go with other steps."),
         (["-t", "vim"], "oo new can't --then vim."),
     ],
 )
@@ -633,7 +639,7 @@ def test_new_carries_on_when_the_editor_wont_open(calls, monkeypatch):
         return fake(*args, failed=failed, on_tick=on_tick)
 
     monkeypatch.setattr(ona, "quietly", quietly)
-    result = oo("new", "-t", "open,claude,ssh")
+    result = oo("new", "-t", "code,claude,ssh")
     assert "Ona couldn't open your editor." in result.output
     assert "no editor found" in result.output
     assert calls == [CREATE, ("open", NEW_LINK), ("environment", "ssh", "99999999-new")]
@@ -650,8 +656,8 @@ def test_new_carries_on_when_the_claude_app_wont_open(calls, monkeypatch):
 
 
 def test_complete_then_offers_the_steps_after_a_comma():
-    assert cli._complete_then("o") == ["open"]
-    assert cli._complete_then("open,s") == ["open,ssh"]
+    assert cli._complete_then("c") == ["code", "claude"]
+    assert cli._complete_then("code,s") == ["code,ssh"]
 
 
 def test_start_and_stop_say_what_they_did(calls):

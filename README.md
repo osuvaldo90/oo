@@ -31,7 +31,7 @@ $ oo c login
   its ID. Leave your personal branch prefix off.
 - **One glance at everything.** The list shows what's running, when you last used each
   environment, its pull request, and any work that isn't on GitHub yet.
-- **Knows what you mean.** `oo c`, `oo open` and `oo claude` with no branch use the one running
+- **Knows what you mean.** `oo c`, `oo code` and `oo claude` with no branch use the one running
   environment, or let you pick from a list. Typos get a "did you mean".
 - **A fresh environment in one command.** `oo new` creates an environment the way you did last
   time and connects you to it, or opens it in your editor or the Claude app.
@@ -77,7 +77,7 @@ oo                            # list your environments
 oo c login-fix                # SSH into the one on adam/login-fix, starting it if needed
 oo c                          # …the only running one, or pick from a list
 oo c login -- git status      # run one command instead of opening a shell
-oo open login -e cursor       # open it in Cursor (or set $OO_EDITOR)
+oo code login -e cursor       # open it in Cursor (or set $OO_EDITOR)
 oo claude login               # open a Claude Code session on it in the Claude desktop app
 oo claude login --label Login # …and call it Login in the app's SSH picker
 oo claude --clean             # take deleted environments out of the app's SSH connections
@@ -86,7 +86,7 @@ oo cp login:out/report.csv .  # …or out of it
 oo new                        # create an environment and SSH into it
 oo new -n login-fix           # …named login-fix, so oo c login-fix finds it
 oo new -b pr-9                # …check out branch pr-9, then SSH into it
-oo new -t open,ssh            # …open it in your editor, then SSH into it
+oo new -t code,ssh            # …open it in your editor, then SSH into it
 oo new -t claude              # …open it in the Claude desktop app instead
 oo new -t none                # …just create it
 oo start login billing        # warm some up in the background
@@ -167,7 +167,7 @@ Ona has started the environment, oo connects to it. It starts on the project's d
 | Variable | |
 | --- | --- |
 | `OO_BRANCH_PREFIX` | Your branch prefix, e.g. `adam/`. Dimmed in the list and optional when typing. |
-| `OO_EDITOR` | Default editor for `oo open` and `oo new -t open`: an alias from `ona environment list-editors`, like `cursor` |
+| `OO_EDITOR` | Default editor for `oo code` and `oo new -t code`: an alias from `ona environment list-editors`, like `cursor` |
 | `OO_PROJECT` | Default project for `oo new` |
 | `OO_CLASS` | Default environment class for `oo new` |
 
@@ -176,7 +176,7 @@ Ona has started the environment, oo connects to it. It starts on the project's d
 oo reads your environments with `ona environment list --format json`, then passes the matching
 ID to `ona environment ssh`, `open`, `start`, `stop` or `delete`. It runs these with their output
 hidden behind a spinner, and if one fails, it shows the `Error:` and "Possible resolutions" ona
-printed. `oo c` and `oo open` start a stopped environment that way first, then replace themselves
+printed. `oo c` and `oo code` start a stopped environment that way first, then replace themselves
 with the ona process, so SSH gets your terminal to itself.
 
 Pull requests and push status come from a single GitHub GraphQL query per repository, made
