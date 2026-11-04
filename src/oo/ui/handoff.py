@@ -7,12 +7,12 @@ a while (`here`), or it asks the terminal it's running in to open the session ne
 from __future__ import annotations
 
 import os
-import re
 import shlex
 import shutil
 import subprocess
-import time
 from collections.abc import Mapping
+
+from .. import cmux
 
 CONNECT_VAR = "OO_CONNECT"
 PREFERENCES = ("auto", "here", "cmux", "tmux", "tab")
@@ -31,28 +31,6 @@ WHERE = {
 # Seconds to give a command that should return straight away, and to watch cmux for an early exit.
 QUICK = 15.0
 CMUX_GRACE = 3.0
-
-# tmux on the environment: a session per environment, starting in its repo, with a reaper that
-# detaches idle clients so the environment can stop. The same setup `oo c` does in cmux.
-IDLE_VARS = ("OO_IDLE_TIMEOUT", "ONA_IDLE_TIMEOUT")
-IDLE_TIMEOUT = 3600
-REAPER_INTERVAL = 300
-REAPER_PATH = "/tmp/oc-reaper.sh"
-REAPER = """\
-timeout=$1 interval=$2
-while sleep "$interval"; do
-  now=$(date +%s)
-  clients=$(tmux list-clients -F '#{client_tty} #{client_session}') || break
-  echo "$clients" | while read -r c s; do
-    [ -n "$c" ] || continue
-    a=$(tmux list-panes -s -t "=$s" -F '#{pane_tty}' |
-      xargs -r stat -c %X 2>/dev/null | sort -n | tail -1)
-    [ -n "$a" ] && [ $((now - a)) -gt "$timeout" ] && tmux detach-client -t "$c"
-  done
-done
-"""
-ATTEMPTS = 5
-RETRY_DELAY = 3.0
 
 
 class HandoffError(Exception):
@@ -103,13 +81,6 @@ def detect(environ: Mapping[str, str] = os.environ, want: str = "auto") -> str:
     return tab or "here"
 
 
-def cmux_binary(environ: Mapping[str, str] = os.environ) -> str | None:
-    bundled = environ.get("CMUX_BUNDLED_CLI_PATH", "")
-    if bundled and os.access(bundled, os.X_OK):
-        return bundled
-    return shutil.which("cmux")
-
-
 def _binary(name: str) -> str:
     path = shutil.which(name)
     if not path:
@@ -157,9 +128,9 @@ def open_elsewhere(
     """Open `argv` as a session titled `title`, `kind` being a key of WHERE other than `here`.
 
     For cmux, `argv` isn't used: cmux mirrors a tmux session on `host` instead, started in
-    `checkout`. Raises HandoffError if the terminal wouldn't do it. The terminal's answer says
-    only that it opened the window; what happens inside stays there, so a command that fails
-    at once holds the window open with its exit code.
+    `checkout`, the way `oo c` does in cmux. Raises HandoffError if the terminal wouldn't do
+    it. The terminal's answer says only that it opened the window; what happens inside stays
+    there, so a command that fails at once holds the window open with its exit code.
     """
     held = holding(argv)
     if kind == "tmux":
@@ -193,75 +164,15 @@ def open_elsewhere(
         raise HandoffError(f"Don't know how to open a session {kind}.")
 
 
-def session_name(label: str) -> str:
-    """A tmux session name for an environment. cmux calls its workspace this too."""
-    return re.sub(r"[^A-Za-z0-9_-]+", "-", label).strip("-") or "oo"
-
-
-def idle_timeout(environ: Mapping[str, str] = os.environ) -> int:
-    for var in IDLE_VARS:
-        value = environ.get(var, "").strip()
-        if value.isdigit():
-            return int(value)
-    return IDLE_TIMEOUT
-
-
-def setup_script(session: str, checkout: str = "", timeout: int = IDLE_TIMEOUT) -> str:
-    """What to run on the environment, with REAPER on its stdin, before cmux mirrors it."""
-    name = shlex.quote(session)
-    # Quoted by hand: shlex leaves `=` bare, and zsh expands a bare `=word` to a command's path.
-    target = "'=" + session.replace("'", "'\\''") + "'"
-    new = f"tmux new-session -d -s {name}" + (f" -c {shlex.quote(checkout)}" if checkout else "")
-    reaper = f"run-shell -b 'sh {REAPER_PATH} {timeout} {REAPER_INTERVAL}'"
-    return "\n".join(
-        [
-            f'f={REAPER_PATH}; cat > "$f.tmp" && mv "$f.tmp" "$f"',
-            f"tmux has-session -t {target} 2>/dev/null || {new}",
-            f"tmux if -F '#{{@oc_reaper}}' '' \"set -g @oc_reaper 1 ; {reaper}\"",
-        ]
-    )
-
-
-def prepare_tmux(host: str, session: str, checkout: str = "") -> None:
-    """Get the environment at `host` ready to mirror, trying again while its SSH comes up."""
-    command = [
-        _binary("ssh"),
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        f"ConnectTimeout={int(QUICK)}",
-        host,
-        setup_script(session, checkout, idle_timeout()),
-    ]
-    for attempt in range(1, ATTEMPTS + 1):
-        try:
-            done = subprocess.run(
-                command, input=REAPER, capture_output=True, text=True, timeout=QUICK * 2
-            )
-        except subprocess.TimeoutExpired:
-            # As good as ssh giving up itself: try again, then say so.
-            done = subprocess.CompletedProcess(command, 255, "", "ssh took too long to answer.")
-        if done.returncode == 0:
-            return
-        # 255 is ssh's own failure, like the environment not taking connections yet.
-        if done.returncode != 255 or attempt == ATTEMPTS:
-            said = (done.stderr or done.stdout).splitlines()
-            # ona, as ssh's proxy, warns about updates, which isn't why it failed.
-            detail = "\n".join(line for line in said if not line.startswith("[WARN")).strip()
-            raise HandoffError(
-                "Couldn't set up tmux on the environment for cmux.",
-                detail=detail or None,
-                hint="oo c NAME -- true checks that plain SSH works.",
-            )
-        time.sleep(RETRY_DELAY)
-
-
 def open_in_cmux(host: str, title: str, checkout: str = "") -> None:
     """Have cmux mirror a tmux session on `host` as a workspace named after `title`."""
-    cli = cmux_binary()
+    cli = cmux.binary()
     if not cli:
         raise HandoffError("Couldn't find the cmux CLI.", hint="Is cmux's CLI installed?")
-    prepare_tmux(host, session_name(title), checkout)
+    try:
+        cmux.prepare(host, cmux.session_name(title), checkout)
+    except cmux.CmuxError as e:
+        raise HandoffError(str(e), detail=e.detail, hint=e.hint) from e
     # cmux may keep running while the workspace is open, so don't wait for it; just make sure
     # it didn't give up straight away.
     process = subprocess.Popen(

@@ -45,8 +45,10 @@ def raw_env(
 
 @pytest.fixture(autouse=True)
 def _clean_environment(monkeypatch):
-    for var in ("OO_EDITOR", "OO_PROJECT", "OO_CLASS"):
+    for var in ("OO_EDITOR", "OO_PROJECT", "OO_CLASS", "OO_IDLE_TIMEOUT", "ONA_IDLE_TIMEOUT"):
         monkeypatch.delenv(var, raising=False)
+    # Tests run the same in and out of a cmux terminal.
+    monkeypatch.delenv("CMUX_WORKSPACE_ID", raising=False)
 
 
 @pytest.fixture(autouse=True)

@@ -42,18 +42,6 @@ def test_applescript_strings_are_escaped():
     assert handoff.applescript_string('say "hi" \\ there') == '"say \\"hi\\" \\\\ there"'
 
 
-def test_session_names_suit_tmux():
-    assert handoff.session_name("adam/login-fix") == "adam-login-fix"
-    assert handoff.session_name("...") == "oo"
-
-
-def test_setup_script_makes_the_session_in_the_repo_with_the_reaper():
-    script = handoff.setup_script("login-fix", "/workspaces/web", timeout=42)
-    assert "tmux has-session -t '=login-fix'" in script
-    assert "tmux new-session -d -s login-fix -c /workspaces/web" in script
-    assert f"sh {handoff.REAPER_PATH} 42 {handoff.REAPER_INTERVAL}" in script
-
-
 @pytest.fixture
 def runs(monkeypatch):
     """Record what open_elsewhere runs instead of running it."""
@@ -107,18 +95,6 @@ def test_terminal_app_gets_a_window(runs):
     )
 
 
-def test_prepare_tmux_gives_up_after_timeouts(monkeypatch):
-    def run(argv, **kwargs):
-        raise subprocess.TimeoutExpired(argv, kwargs.get("timeout", 0))
-
-    monkeypatch.setattr(handoff.subprocess, "run", run)
-    monkeypatch.setattr(handoff.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(handoff.time, "sleep", lambda s: None)
-    with pytest.raises(HandoffError, match="Couldn't set up tmux") as e:
-        handoff.prepare_tmux("h.ona.environment", "s")
-    assert e.value.detail == "ssh took too long to answer."
-
-
 def test_wezterm_and_kitty_spawn(runs):
     handoff.open_elsewhere("wezterm", ARGV, "login-fix")
     handoff.open_elsewhere("kitty", ARGV, "login-fix")
@@ -161,10 +137,10 @@ def test_cmux_prepares_tmux_then_mirrors(monkeypatch):
         def communicate(self, timeout=None):
             raise subprocess.TimeoutExpired("cmux", timeout or 0)
 
-    monkeypatch.setattr(handoff, "cmux_binary", lambda environ=None: "/apps/cmux")
+    monkeypatch.setattr(handoff.cmux, "binary", lambda: "/apps/cmux")
     monkeypatch.setattr(
-        handoff,
-        "prepare_tmux",
+        handoff.cmux,
+        "prepare",
         lambda host, session, checkout="": calls.append(("prepare", host, session, checkout)),
     )
     monkeypatch.setattr(handoff.subprocess, "Popen", Process)
@@ -187,8 +163,8 @@ def test_cmux_that_gives_up_at_once_is_reported(monkeypatch):
         def communicate(self, timeout=None):
             return "socket not found", None
 
-    monkeypatch.setattr(handoff, "cmux_binary", lambda environ=None: "/apps/cmux")
-    monkeypatch.setattr(handoff, "prepare_tmux", lambda *a, **k: None)
+    monkeypatch.setattr(handoff.cmux, "binary", lambda: "/apps/cmux")
+    monkeypatch.setattr(handoff.cmux, "prepare", lambda *a, **k: None)
     monkeypatch.setattr(handoff.subprocess, "Popen", Process)
     with pytest.raises(HandoffError, match="cmux couldn't open") as e:
         handoff.open_in_cmux("h", "t")
@@ -196,15 +172,17 @@ def test_cmux_that_gives_up_at_once_is_reported(monkeypatch):
 
 
 def test_without_the_cmux_cli_there_is_a_hint(monkeypatch):
-    monkeypatch.setattr(handoff, "cmux_binary", lambda environ=None: None)
+    monkeypatch.setattr(handoff.cmux, "binary", lambda: None)
     with pytest.raises(HandoffError, match="cmux CLI"):
         handoff.open_in_cmux("h", "t")
 
 
-def test_cmux_binary_prefers_the_bundled_cli(tmp_path, monkeypatch):
-    cli = tmp_path / "cmux"
-    cli.write_text("#!/bin/sh\n")
-    cli.chmod(0o755)
-    assert handoff.cmux_binary({"CMUX_BUNDLED_CLI_PATH": str(cli)}) == str(cli)
-    monkeypatch.setattr(handoff.shutil, "which", lambda name: None)
-    assert handoff.cmux_binary({"CMUX_BUNDLED_CLI_PATH": str(tmp_path / "missing")}) is None
+def test_cmux_trouble_is_reported_as_a_handoff_error(monkeypatch):
+    def prepare(host, session, checkout=""):
+        raise handoff.cmux.CmuxError("Couldn't set up tmux.", detail="ssh took too long", hint="h")
+
+    monkeypatch.setattr(handoff.cmux, "binary", lambda: "/apps/cmux")
+    monkeypatch.setattr(handoff.cmux, "prepare", prepare)
+    with pytest.raises(HandoffError, match="set up tmux") as e:
+        handoff.open_in_cmux("h", "t")
+    assert e.value.detail == "ssh took too long"
