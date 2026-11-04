@@ -49,14 +49,8 @@ def created(when: datetime | None) -> str:
     return when.astimezone().strftime("%b %-d %H:%M") if when else "?"
 
 
-def branch(env: Env, prefix: str) -> Text:
-    """The branch with your prefix dimmed, so the part you'd type stands out."""
-    if not env.branch:
-        return Text(env.short_branch(prefix), style="bold")
-    short = env.short_branch(prefix)
-    if short == env.branch:
-        return Text(short, style="bold")
-    return Text.assemble((prefix, FAINT), (short, "bold"))
+def name(env: Env) -> Text:
+    return Text(env.label, style="bold")
 
 
 def phase(env: Env) -> Text:
@@ -68,30 +62,18 @@ def changes(env: Env) -> Text:
     return Text(f"{env.changed_count} uncommitted" if env.changed_count else "", style=AMBER)
 
 
-def env_table(
-    envs: list[Env],
-    prefix: str,
-    *,
-    width: int | None = None,
-    numbered: bool = False,
-    names: bool = True,
-) -> Table:
-    """One row per environment, fitted to `width` by cutting the branch and name short if need be.
+def env_table(envs: list[Env], *, width: int | None = None, numbered: bool = False) -> Table:
+    """One row per environment, fitted to `width` by cutting the name short if need be.
 
-    Environments on a branch get a Name column if any has a name, unless `width` has no room for
-    it. When the shown names repeat, rows also show the end of their ID and when they were created,
-    to tell them apart.
+    When the shown names repeat, rows also show the end of their ID and when they were created, to
+    tell them apart.
     """
     show_repo = len({e.repo for e in envs}) > 1
-    # An environment without a branch already shows its name in the Branch column.
-    show_name = names and any(e.branch and e.name for e in envs)
-    twins = len({e.short_branch(prefix) for e in envs}) < len(envs)
+    twins = len({e.label.lower() for e in envs}) < len(envs)
     table = Table(box=None, pad_edge=False, padding=(0, 1), header_style=FAINT)
     if numbered:
         table.add_column("#", justify="right", style=FAINT, no_wrap=True)
-    table.add_column("Branch", no_wrap=True, overflow="ellipsis")
-    if show_name:
-        table.add_column("Name", no_wrap=True, overflow="ellipsis")
+    table.add_column("Name", no_wrap=True, overflow="ellipsis")
     if twins:
         table.add_column("ID", no_wrap=True)
     if show_repo:
@@ -105,9 +87,7 @@ def env_table(
     rows: list[list[Text]] = []
     for i, env in enumerate(envs, 1):
         cells = [Text(str(i))] if numbered else []
-        cells.append(branch(env, prefix))
-        if show_name:
-            cells.append(Text(env.name if env.branch else ""))
+        cells.append(name(env))
         if twins:
             cells.append(Text(env.short_id, style=ACCENT))
         if show_repo:
@@ -122,36 +102,25 @@ def env_table(
 
     if width is not None:
         # Every other column gets what it needs, plus a gap of 2 between columns.
-        branch_index = 1 if numbered else 0
-        name_index = branch_index + 1 if show_name else None
-        needs = [
+        name_index = 1 if numbered else 0
+        others = sum(
             max(len(str(column.header)), *(row[i].cell_len for row in rows))
             for i, column in enumerate(table.columns)
-        ]
-        others = sum(n for i, n in enumerate(needs) if i not in (branch_index, name_index))
-        room = width - others - 2 * (len(rows[0]) - 1)
-        if name_index is not None:
-            # The branch keeps at least 10 and the name at least 6, or the name goes. Past that, the
-            # name grows to fit while the branch keeps 20, which shows most of a branch.
-            if room < 10 + 6:
-                return env_table(envs, prefix, width=width, numbered=numbered, names=False)
-            keep = min(needs[branch_index], 20)
-            name_width = min(needs[name_index], max(6, room - keep))
-            table.columns[name_index].max_width = name_width
-            room -= name_width
-        table.columns[branch_index].max_width = max(10, room)
+            if i != name_index
+        )
+        table.columns[name_index].max_width = max(10, width - others - 2 * (len(rows[0]) - 1))
     return table
 
 
-def listing(console: Console, envs: list[Env], prefix: str) -> None:
+def listing(console: Console, envs: list[Env]) -> None:
     console.print()
-    console.print(env_table(envs, prefix, width=console.width))
+    console.print(env_table(envs, width=console.width))
     console.print()
 
 
-def heading(console: Console, verb: str, env: Env, prefix: str, note: str = "") -> None:
-    """e.g. `→ Connecting to adam/login-fix · running`"""
-    line = Text.assemble(("→ ", ACCENT), (f"{verb} ", ACCENT), branch(env, prefix))
+def heading(console: Console, verb: str, env: Env, note: str = "") -> None:
+    """e.g. `→ Connecting to login-fix · running`"""
+    line = Text.assemble(("→ ", ACCENT), (f"{verb} ", ACCENT), name(env))
     line.append(f" · {note or env.phase}", style=FAINT)
     console.print(line)
 
@@ -172,8 +141,8 @@ def duration(seconds: float) -> str:
 
 
 def names(envs: list[Env]) -> str:
-    """e.g. `adam/a`, `adam/a and adam/b`, `adam/a, adam/b and adam/c`"""
-    named = [e.branch or e.name or e.id for e in envs]
+    """e.g. `a`, `a and b`, `a, b and c`"""
+    named = [e.label for e in envs]
     return named[0] if len(named) == 1 else ", ".join(named[:-1]) + f" and {named[-1]}"
 
 

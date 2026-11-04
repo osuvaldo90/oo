@@ -20,9 +20,9 @@ from oo.ui.app import OoApp
 from oo.ui.ops import UiError
 
 RAW = [
-    raw_env("11111111-aaaa", "sam/feat-10", "running", created="2026-09-20T00:00:00Z"),
-    raw_env("22222222-bbbb", "sam/docs", changed=["src/a.py"]),
-    raw_env("33333333-cccc", "sam/spike"),
+    raw_env("11111111-aaaa", "feat-10", "running", created="2026-09-20T00:00:00Z"),
+    raw_env("22222222-bbbb", "docs", changed=["src/a.py"]),
+    raw_env("33333333-cccc", "spike"),
 ]
 WIDGETS = Project(id="p-1", name="Widgets", class_ids=("c-fr",))
 FRANKFURT = EnvClass(id="c-fr", name="m7i.xlarge", runner="Frankfurt")
@@ -37,7 +37,6 @@ def envs() -> list[Env]:
 def fake(monkeypatch, envs):
     """Ona, as the screen sees it: canned answers and a record of what was asked."""
     record: list[tuple] = []
-    monkeypatch.setenv("OO_BRANCH_PREFIX", "sam")
 
     def start(ids, *, wait, on_tick=None):
         record.append(("start", tuple(ids), wait))
@@ -45,7 +44,7 @@ def fake(monkeypatch, envs):
 
     def create(project, env_class, name, before, on_tick=None):
         record.append(("create", project.id, env_class.id if env_class else None, name))
-        made = Env.from_json(raw_env("99999999-new", "main", "running", name=name or None))
+        made = Env.from_json(raw_env("99999999-new", name or "", "running"))
         envs.append(made)
         return made, 30.0
 
@@ -498,7 +497,7 @@ def test_missing_textual_gets_a_hint_with_the_extra(monkeypatch, capsys):
 
 
 def test_a_stale_default_project_is_not_offered():
-    stale = Env.from_json(raw_env("55555555-eeee", "sam/old", project="gone"))
+    stale = Env.from_json(raw_env("55555555-eeee", "old", project="gone"))
     assert ops.pick_defaults([WIDGETS], [FRANKFURT], [stale]) == (None, None)
 
 

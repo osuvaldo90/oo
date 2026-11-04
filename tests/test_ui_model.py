@@ -9,33 +9,33 @@ from oo.ui.model import Ops, Overlays
 
 def envs() -> list[Env]:
     return [
-        Env.from_json(raw_env("11111111-aaaa", "sam/feat-10", "running")),
-        Env.from_json(raw_env("22222222-bbbb", "sam/feat-10-2")),
-        Env.from_json(raw_env("33333333-cccc", "sam/docs")),
+        Env.from_json(raw_env("11111111-aaaa", "feat-10", "running")),
+        Env.from_json(raw_env("22222222-bbbb", "feat-10-2")),
+        Env.from_json(raw_env("33333333-cccc", "docs")),
     ]
 
 
 def test_search_uses_the_same_tiers_as_the_commands():
-    found = model.search(envs(), "docs", "sam/")
+    found = model.search(envs(), "docs")
     assert [e.id for e in found] == ["33333333-cccc"]
-    found = model.search(envs(), "feat-10", "sam/")
+    found = model.search(envs(), "feat-10")
     assert [e.id for e in found] == ["11111111-aaaa"]
 
 
 def test_search_by_phase_word_and_empty_query():
-    assert [e.id for e in model.search(envs(), "stopped", "sam/")] == [
+    assert [e.id for e in model.search(envs(), "stopped")] == [
         "22222222-bbbb",
         "33333333-cccc",
     ]
-    assert len(model.search(envs(), "  ", "sam/")) == 3
+    assert len(model.search(envs(), "  ")) == 3
 
 
 def test_suggestion_and_twins():
-    assert model.suggestion(envs(), "dcos", "sam/") == "docs"
-    assert model.suggestion(envs(), "zzzzzz", "sam/") is None
-    assert not model.twins(envs(), "sam/")
-    twin = Env.from_json(raw_env("44444444-dddd", "sam/docs"))
-    assert model.twins([*envs(), twin], "sam/")
+    assert model.suggestion(envs(), "dcos") == "docs"
+    assert model.suggestion(envs(), "zzzzzz") is None
+    assert not model.twins(envs())
+    twin = Env.from_json(raw_env("44444444-dddd", "docs"))
+    assert model.twins([*envs(), twin])
 
 
 def test_overlay_shows_until_ona_moves_then_steps_aside():

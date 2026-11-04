@@ -128,7 +128,6 @@ class OoApp(App[None]):
     def __init__(self, environ: dict[str, str] | None = None) -> None:
         super().__init__()
         self.environ = os.environ if environ is None else environ
-        self.prefix = model.prefix()
         self.connect_pref = handoff.preference(self.environ)
         self.editor_default = self.environ.get(EDITOR_VAR) or None
 
@@ -263,14 +262,14 @@ class OoApp(App[None]):
         live = {e.id for e in self.envs}
         self.marks &= live
         self.failures = {k: v for k, v in self.failures.items() if k in live}
-        self.rows = model.search(self.shown, self.filter_text, self.prefix)
+        self.rows = model.search(self.shown, self.filter_text)
         self.rebuild()
         self.update_header()
 
     # ----- drawing -----
 
     def label(self, env: Env) -> str:
-        return model.label(env, self.prefix)
+        return model.label(env)
 
     def overlay(self, env: Env, phase: str) -> None:
         """Show `phase` for `env` until Ona's own phase moves, going by what Ona last said."""
@@ -281,11 +280,11 @@ class OoApp(App[None]):
         """Redraw the table from scratch, keeping the cursor on the same environment."""
         table = self.table
         envs = self.rows
-        twins = model.twins(envs, self.prefix)
+        twins = model.twins(envs)
         show_repo = len({e.repo for e in envs}) > 1
         table.clear(columns=True)
         table.add_column(" ", key=MARK, width=1)
-        table.add_column("Branch", key=NAME)
+        table.add_column("Name", key=NAME)
         if twins:
             table.add_column("ID", key=ID)
         if show_repo:
@@ -296,7 +295,7 @@ class OoApp(App[None]):
         table.add_column("Active", key=ACTIVE_COL)
         table.add_column("Changes", key=CHANGES)
         for env in envs:
-            cells: list[Text] = [self.mark_cell(env.id), render.branch(env, self.prefix)]
+            cells: list[Text] = [self.mark_cell(env.id), render.name(env)]
             if twins:
                 cells.append(Text(env.short_id, style=render.ACCENT))
             if show_repo:
@@ -413,8 +412,6 @@ class OoApp(App[None]):
         first = Text.assemble((self.label(env), "bold"))
         if env.repo:
             first.append(f"  ·  {env.repo}")
-        if env.branch and env.branch != self.label(env):
-            first.append(f"  ·  {env.branch}")
         first.append(f"  ·  created {render.created(env.created)}  ·  id …{env.short_id}")
         if env.checkout:
             first.append(f"  ·  {env.checkout}", style=render.FAINT)
@@ -479,7 +476,7 @@ class OoApp(App[None]):
             line = Text.assemble(
                 ("? ", f"bold {render.ACCENT}"), f'No environment matches "{self.filter_text}".'
             )
-            if close := model.suggestion(self.shown, self.filter_text, self.prefix):
+            if close := model.suggestion(self.shown, self.filter_text):
                 line.append(f"  Did you mean {close}? Enter picks it.", style=render.FAINT)
             self.query_one("#event", Static).update(line)
 
@@ -607,7 +604,7 @@ class OoApp(App[None]):
 
     def set_filter(self, text: str) -> None:
         self.filter_text = text
-        self.rows = model.search(self.shown, text, self.prefix)
+        self.rows = model.search(self.shown, text)
         self.rebuild()
         self.update_header()
 
@@ -618,7 +615,7 @@ class OoApp(App[None]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "filter":
             return
-        if not self.rows and (close := model.suggestion(self.shown, event.value, self.prefix)):
+        if not self.rows and (close := model.suggestion(self.shown, event.value)):
             event.input.value = close
             return
         self.table.focus()
@@ -665,7 +662,7 @@ class OoApp(App[None]):
         found = [e for e in self.envs if e.id in env_ids]
         if not found:
             return next((g[1] for g in self.ghosts if g[0] in env_ids), "")
-        return model.names(found, self.prefix)
+        return model.names(found)
 
     # ----- actions: start, stop, delete -----
 
@@ -675,7 +672,7 @@ class OoApp(App[None]):
         targets = [e for e in targets if e not in skipped]
         if skipped and not targets:
             what = skipped[0].phase if len(skipped) == 1 else "running"
-            self.notify(f"{model.names(skipped, self.prefix)} already {what}.")
+            self.notify(f"{model.names(skipped)} already {what}.")
         if not targets:
             return
         for env in targets:
@@ -702,7 +699,7 @@ class OoApp(App[None]):
         targets = [e for e in targets if e not in skipped]
         if skipped and not targets:
             what = skipped[0].phase if len(skipped) == 1 else "stopped"
-            self.notify(f"{model.names(skipped, self.prefix)} already {what}.")
+            self.notify(f"{model.names(skipped)} already {what}.")
         if not targets:
             return
         for env in targets:
@@ -733,7 +730,7 @@ class OoApp(App[None]):
             return
         if busy := [e for e in targets if self.ops.busy(e.id)]:
             self.notify(
-                f"{model.names(busy, self.prefix)} is busy; wait for that to finish.",
+                f"{model.names(busy)} is busy; wait for that to finish.",
                 severity="warning",
             )
             return

@@ -24,23 +24,23 @@ def host(env_id: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Spot:
-    """One path in an `oo cp`: on your machine, or in the environment `branch` names."""
+    """One path in an `oo cp`: on your machine, or in the environment `name` names."""
 
     path: str
     remote: bool = False
-    branch: str = ""
+    name: str = ""
 
     @classmethod
     def parse(cls, arg: str) -> Spot:
-        """`branch:path` or `:path` means an environment; anything else is a local path.
+        """`name:path` or `:path` means an environment; anything else is a local path.
 
-        Branches can't contain colons, so the first one ends the branch. Paths starting with
+        Names can't contain colons, so the first one ends the name. Paths starting with
         `/`, `.` or `~` are always local, so `./odd:name` is a way to say a local file.
         """
-        branch, colon, path = arg.partition(":")
+        name, colon, path = arg.partition(":")
         if not colon or arg.startswith(("/", ".", "~")):
             return cls(arg)
-        return cls(path, remote=True, branch=branch)
+        return cls(path, remote=True, name=name)
 
     def resolved(self, checkout: str) -> str:
         """The remote path, with relative ones starting in the repo checkout, not home."""

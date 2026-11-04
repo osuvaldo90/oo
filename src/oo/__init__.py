@@ -1,4 +1,4 @@
-"""oo: hop into your Ona environments by branch name."""
+"""oo: hop into your Ona environments by name."""
 
 from importlib.metadata import PackageNotFoundError, version
 

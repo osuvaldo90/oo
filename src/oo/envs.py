@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-
-PREFIX_VAR = "OO_BRANCH_PREFIX"
 
 # IDs are UUIDv7s, which share a timestamp up front, so the end is what tells them apart.
 SHORT_ID_LENGTH = 6
@@ -20,19 +17,8 @@ MAX_NAME = 63 - 1 - SHORT_ID_LENGTH
 
 GONE = ("deleting", "deleted")
 
-# What Ona reports when HEAD isn't on a branch, as jj always leaves it.
-DETACHED = "(detached)"
-
 # Most settled first, so the list shows what you're working on at the top.
 PHASE_ORDER = ["running", "starting", "creating", "updating", "stopping", "stopped"]
-
-
-def branch_prefix() -> str:
-    """Your branch prefix from $OO_BRANCH_PREFIX, with a trailing slash if you left it off."""
-    prefix = os.environ.get(PREFIX_VAR, "").strip()
-    if prefix and prefix[-1].isalnum():
-        prefix += "/"
-    return prefix
 
 
 def safe_name(name: str) -> bool:
@@ -69,7 +55,6 @@ def _timestamp(value: Any) -> datetime | None:
 class Env:
     id: str
     name: str
-    branch: str
     repo_url: str
     phase: str
     last_active: datetime | None
@@ -97,15 +82,9 @@ class Env:
         checkout = _dig(data, "status", "content", "contentLocationInMachine") or ""
         if not checkout and initializer.get("checkoutLocation"):
             checkout = f"/workspaces/{initializer['checkoutLocation']}"
-        branch = git.get("branch") or initializer.get("cloneTarget") or ""
-        # The branch it was cloned from says nothing about where a detached HEAD is now, so go
-        # without, and let the name or ID stand in for it.
-        if branch == DETACHED:
-            branch = ""
         return cls(
             id=data.get("id", ""),
             name=_dig(data, "metadata", "name") or "",
-            branch=branch,
             repo_url=git.get("cloneUrl") or initializer.get("remoteUri") or "",
             phase=phase if phase and phase != "unspecified" else "unknown",
             last_active=_timestamp(_dig(data, "status", "activitySignal", "timestamp"))
@@ -132,13 +111,10 @@ class Env:
         """Just the repository's name, e.g. `web`."""
         return self.repo_url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
 
-    def short_branch(self, prefix: str) -> str:
-        """What you'd type to mean this environment: its branch without your prefix."""
-        if not self.branch:
-            return self.name or self.id
-        if prefix and self.branch.startswith(prefix) and len(self.branch) > len(prefix):
-            return self.branch.removeprefix(prefix)
-        return self.branch
+    @property
+    def label(self) -> str:
+        """What oo calls this environment: its name, or the end of its ID if it has none."""
+        return self.name or self.short_id
 
 
 def newest(envs: list[Env]) -> Env | None:
@@ -170,18 +146,19 @@ class Ambiguous(Exception):
         self.candidates = candidates
 
 
-def matches(envs: list[Env], query: str, prefix: str) -> list[Env]:
-    """Environments matching `query`, from the tightest kind of match that finds any."""
-    q = query.strip()
+def matches(envs: list[Env], query: str) -> list[Env]:
+    """Environments matching `query`, from the tightest kind of match that finds any.
+
+    Names are compared ignoring case, as host names are.
+    """
+    q = query.strip().lower()
     if not q:
         return []
-    lowered = q.lower()
     tiers = [
-        lambda e: q in (e.id, e.name),
-        lambda e: e.branch in (q, prefix + q),
-        lambda e: e.branch.endswith("/" + q),
-        lambda e: lowered in e.branch.lower() or (e.name and lowered in e.name.lower()),
-        lambda e: e.id.startswith(lowered) or e.id.endswith(lowered),
+        lambda e: q in (e.id, e.name.lower()),
+        lambda e: e.name.lower().startswith(q),
+        lambda e: q in e.name.lower(),
+        lambda e: e.id.startswith(q) or e.id.endswith(q),
     ]
     for tier in tiers:
         if hits := [e for e in envs if tier(e)]:
@@ -189,9 +166,9 @@ def matches(envs: list[Env], query: str, prefix: str) -> list[Env]:
     return []
 
 
-def pick(envs: list[Env], query: str, prefix: str) -> Env:
+def pick(envs: list[Env], query: str) -> Env:
     """The one environment `query` means, or Ambiguous if it could be several."""
-    hits = matches(envs, query, prefix)
+    hits = matches(envs, query)
     if not hits:
         raise NoMatch(query)
     if len(hits) > 1:

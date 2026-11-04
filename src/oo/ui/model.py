@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from ..envs import Env, branch_prefix, matches
+from ..envs import Env, matches
 
 # Phases a row can be in while Ona is changing it. These poll faster.
 TRANSITIONAL = ("starting", "creating", "updating", "stopping", "deleting")
@@ -18,17 +18,12 @@ PHASE_WORDS = ("running", "starting", "stopping", "stopped", "deleting", "creati
 OVERLAY_TIMEOUT = 90.0
 
 
-def prefix() -> str:
-    """The branch prefix the list leaves off, from the environment."""
-    return branch_prefix()
-
-
-def label(env: Env, prefix: str) -> str:
+def label(env: Env) -> str:
     """What the screen calls an environment: the same name `oo` uses."""
-    return env.short_branch(prefix)
+    return env.label
 
 
-def search(envs: list[Env], query: str, prefix: str) -> list[Env]:
+def search(envs: list[Env], query: str) -> list[Env]:
     """The rows `query` picks out.
 
     A phase word like `stopped` picks every environment in that phase. Anything else goes
@@ -39,26 +34,26 @@ def search(envs: list[Env], query: str, prefix: str) -> list[Env]:
         return list(envs)
     if q in PHASE_WORDS:
         return [e for e in envs if e.phase == q]
-    return matches(envs, query, prefix)
+    return matches(envs, query)
 
 
-def suggestion(envs: list[Env], query: str, prefix: str) -> str | None:
+def suggestion(envs: list[Env], query: str) -> str | None:
     """A name close to `query`, for a did-you-mean."""
-    close = difflib.get_close_matches(query.strip(), [label(e, prefix) for e in envs], n=1)
+    close = difflib.get_close_matches(query.strip(), [label(e) for e in envs], n=1)
     return close[0] if close else None
 
 
-def names(envs: list[Env], prefix: str) -> str:
+def names(envs: list[Env]) -> str:
     """e.g. `a`, `a and b`, `a, b and c`, by the names the screen shows."""
-    named = [label(e, prefix) for e in envs]
+    named = [label(e) for e in envs]
     if not named:
         return ""
     return named[0] if len(named) == 1 else ", ".join(named[:-1]) + f" and {named[-1]}"
 
 
-def twins(envs: list[Env], prefix: str) -> bool:
+def twins(envs: list[Env]) -> bool:
     """Whether two rows would show the same name, so IDs are needed to tell them apart."""
-    return len({label(e, prefix).lower() for e in envs}) < len(envs)
+    return len({label(e).lower() for e in envs}) < len(envs)
 
 
 @dataclass(frozen=True, slots=True)

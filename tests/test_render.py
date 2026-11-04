@@ -28,27 +28,27 @@ def test_ago(delta, expected):
 
 def render(envs: list[Env], **kwargs) -> str:
     console = Console(width=120, record=True, color_system=None)
-    console.print(env_table(envs, "sam/", **kwargs))
+    console.print(env_table(envs, **kwargs))
     return console.export_text()
 
 
 def test_repo_column_only_when_it_tells_you_something():
-    one = [Env.from_json(raw_env("a", "sam/x")), Env.from_json(raw_env("b", "sam/y"))]
+    one = [Env.from_json(raw_env("a", "x")), Env.from_json(raw_env("b", "y"))]
     assert "Repo" not in render(one)
-    two = [*one, Env.from_json(raw_env("c", "sam/z", repo="https://github.com/acme/gadgets"))]
+    two = [*one, Env.from_json(raw_env("c", "z", repo="https://github.com/acme/gadgets"))]
     assert "gadgets" in render(two)
 
 
 def test_numbers_on_request():
-    text = render([Env.from_json(raw_env("abc-123", "sam/x"))], numbered=True)
+    text = render([Env.from_json(raw_env("abc-123", "x"))], numbered=True)
     assert text.splitlines()[1].lstrip().startswith("1")
     assert "Created" not in text
 
 
 def test_twins_get_told_apart_by_id_and_creation():
     twins = [
-        Env.from_json(raw_env("0000-aaaaaa", "sam/x", created="2026-09-28T10:00:00Z")),
-        Env.from_json(raw_env("0000-bbbbbb", "sam/x", created="2026-09-29T10:00:00Z")),
+        Env.from_json(raw_env("0000-aaaaaa", "x", created="2026-09-28T10:00:00Z")),
+        Env.from_json(raw_env("0000-bbbbbb", "x", created="2026-09-29T10:00:00Z")),
     ]
     text = render(twins)
     assert "Created" in text
@@ -56,32 +56,26 @@ def test_twins_get_told_apart_by_id_and_creation():
     assert "Sep 28" in text and "Sep 29" in text
 
 
-def test_names_get_a_column_when_a_branch_hides_them():
+def test_long_names_get_cut_to_fit_a_narrow_terminal():
     envs = [
-        Env.from_json(raw_env("0000-aaaaaa", "main", name="vulns")),
-        Env.from_json(raw_env("0000-bbbbbb", "main")),
+        Env.from_json(raw_env("0000-aaaaaa", "a-very-long-environment-name-for-testing")),
+        Env.from_json(raw_env("0000-bbbbbb", "other")),
     ]
-    text = render(envs)
-    assert "Name" in text
-    assert "vulns" in text
-    assert "Name" not in render([Env.from_json(raw_env("abc-123", "sam/x"))])
+    console = Console(width=45, record=True, color_system=None)
+    console.print(env_table(envs, width=45))
+    text = console.export_text()
+    assert max(len(line) for line in text.splitlines()) <= 45
+    assert "other" in text
 
 
-def test_names_make_way_in_a_narrow_terminal():
-    envs = [
-        Env.from_json(raw_env("0000-aaaaaa", "sam/a-long-branch-name", name="a-long-name")),
-        Env.from_json(raw_env("0000-bbbbbb", "sam/other")),
-    ]
-    for width, has_name in ((60, True), (45, False)):
-        console = Console(width=width, record=True, color_system=None)
-        console.print(env_table(envs, "sam/", width=width))
-        text = console.export_text()
-        assert max(len(line) for line in text.splitlines()) <= width
-        assert ("Name" in text) is has_name
-
-
-def test_detached_environments_show_their_names():
-    text = render([Env.from_json(raw_env("abc-123", "(detached)", name="AuthFix"))])
+def test_shows_names_never_branches():
+    text = render([Env.from_json(raw_env("abc-123", "AuthFix", branch="sam/auth"))])
     assert "AuthFix" in text
-    assert "(detached)" not in text
+    assert "sam/auth" not in text
+    assert "Name" in text
     assert "Created" not in text
+
+
+def test_shows_the_end_of_the_id_without_a_name():
+    text = render([Env.from_json(raw_env("0000-abc123", ""))])
+    assert "abc123" in text and "0000-" not in text

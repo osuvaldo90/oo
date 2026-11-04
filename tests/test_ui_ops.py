@@ -13,8 +13,8 @@ from oo.ui import ops
 from oo.ui.ops import UiError
 
 RAW = [
-    raw_env("11111111-aaaa", "sam/feat-10", "running"),
-    raw_env("22222222-bbbb", "sam/docs"),
+    raw_env("11111111-aaaa", "feat-10", "running"),
+    raw_env("22222222-bbbb", "docs"),
 ]
 WIDGETS = Project(id="p-1", name="Widgets", class_ids=("c-fr",))
 FRANKFURT = EnvClass(id="c-fr", name="m7i.xlarge", runner="Frankfurt")
@@ -32,7 +32,8 @@ def calls(monkeypatch, envs):
     def quietly(*args, failed, on_tick=None):
         record.append(args)
         if args[:2] == ("environment", "create"):
-            envs.append(Env.from_json(raw_env("99999999-new", "main", "running")))
+            name = args[args.index("--name") + 1] if "--name" in args else ""
+            envs.append(Env.from_json(raw_env("99999999-new", name, "running")))
             return 3.0, "99999999-new\n"
         return 2.0, ""
 
@@ -105,7 +106,7 @@ def test_create_without_a_class_or_name(calls, envs):
 
 
 def test_create_renames_a_taken_name_after_the_new_id(calls, envs):
-    envs.append(Env.from_json(raw_env("44444444-dddd", "sam/other", name="login-fix")))
+    envs.append(Env.from_json(raw_env("44444444-dddd", "login-fix")))
     created, _ = ops.create(WIDGETS, None, "login-fix", list(envs))
     assert created.name == "login-fix-99-new"
     assert calls[-1] == ("environment", "update", "99999999-new", "--name", "login-fix-99-new")

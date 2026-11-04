@@ -1,7 +1,7 @@
 <h1 align="center">oo</h1>
 
 <p align="center">
-  <b>Hop into your <a href="https://ona.com">Ona</a> environments by branch name.</b><br>
+  <b>Hop into your <a href="https://ona.com">Ona</a> environments by name.</b><br>
   No more copying UUIDs out of <code>ona environment list</code>: run <code>oo c login-fix</code> and you're in.
 </p>
 
@@ -16,22 +16,22 @@
 ```console
 $ oo
 
-Branch               Status     Active   Changes
-adam/login-fix       ● running  4m ago
-adam/billing-export  ○ stopped  2d ago   3 uncommitted
-adam/old-spike       ○ stopped  3w ago
+Name            Status     Active   Changes
+login-fix       ● running  4m ago
+billing-export  ○ stopped  2d ago   3 uncommitted
+old-spike       ○ stopped  3w ago
 
 $ oo c login
-→ Connecting to adam/login-fix · running
+→ Connecting to login-fix · running
 ```
 
 ## Why oo
 
-- **Branches, not UUIDs.** Name an environment by its branch, any unique part of it, its name or
-  its ID. Leave your personal branch prefix off.
+- **Names, not UUIDs.** Name an environment by its Ona name, any unique part of it, or its ID.
+  `oo new login-fix` gives a new environment its name.
 - **One glance at everything.** The list shows what's running, when you last used each
   environment, and any uncommitted work.
-- **Knows what you mean.** `oo c`, `oo code` and `oo claude` with no branch use the one running
+- **Knows what you mean.** `oo c`, `oo code` and `oo claude` with no name use the one running
   environment, or let you pick from a list. Typos get a "did you mean".
 - **A fresh environment in one command.** `oo new NAME` creates an environment the way you did
   last time and connects you to it, or opens it in your editor or the Claude app.
@@ -60,26 +60,20 @@ git clone https://github.com/adamtrain/oo && cd oo
 uv tool install --editable .
 ```
 
-If your branches share a prefix, tell oo in your shell profile so you can leave it off:
-
-```sh
-export OO_BRANCH_PREFIX=adam/
-```
-
-For tab completion of branch names, run `oo --install-completion` once.
+For tab completion of environment names, run `oo --install-completion` once.
 
 ## Usage
 
 ```sh
 oo                            # list your environments
-oo c login-fix                # SSH into the one on adam/login-fix, starting it if needed
+oo c login-fix                # SSH into the one named login-fix, starting it if needed
 oo c                          # …the only running one, or pick from a list
 oo c login -- git status      # run one command instead of opening a shell
 oo code login -e cursor       # open it in Cursor (or set $OO_EDITOR)
 oo claude login               # open a Claude Code session on it in the Claude desktop app
 oo claude login --label Login # …and call it Login in the app's SSH picker
 oo claude --clean             # take deleted environments out of the app's SSH connections
-oo cp notes.md dist login:    # copy files and folders into the repo on adam/login-fix
+oo cp notes.md dist login:    # copy files and folders into the repo on login-fix
 oo cp login:out/report.csv .  # …or out of it
 oo new login-fix              # create an environment named login-fix and SSH into it
 oo new login-fix -t code,ssh  # …open it in your editor, then SSH into it
@@ -94,28 +88,27 @@ ona env logs $(oo id login)   # hand an ID to any other ona command
 
 ### Naming an environment
 
-Wherever oo asks for a branch, you can give:
+Wherever oo asks for an environment, you can give:
 
-1. An environment's ID or name
-2. The full branch, like `adam/login-fix`, or the branch without `$OO_BRANCH_PREFIX`, like
-   `login-fix`
-3. The part after any other prefix, like `their-branch` for `sam/their-branch`
-4. Any part of a branch or environment name, like `login`
-5. The start or end of an ID
+1. Its whole name or its ID
+2. The start of its name, like `login` for `login-fix`
+3. Any part of its name, like `fix`
+4. The start or end of its ID
 
-oo tries these in order and stops at the first that matches anything, so `login` means
-`adam/login` even when `adam/login-fix` exists too. If a name still matches more than one
-environment, oo lists them and asks which one you mean. In a script, with nobody to ask, it lists
-them and stops instead.
+Names match without regard to case. oo tries these in order and stops at the first that matches
+anything, so `login` means `login` even when `login-fix` exists too. If a name still matches more
+than one environment, oo lists them and asks which one you mean. In a script, with nobody to ask,
+it lists them and stops instead.
 
-When you have more than one environment on the same branch, lists also show when each was
-created and the last 6 characters of its ID. Type those characters to name one directly, like
+An environment with no name, such as one made outside oo, shows the last 6 characters of its ID
+instead. When more than one environment has the same name, lists also show when each was created
+and the last 6 characters of its ID. Type those characters to name one directly, like
 `oo c 0ffee1`.
 
 ### Copying files
 
-`oo cp` works like `scp`, with a branch where the host would go. The last path is where to copy
-to, and paths in an environment are written `branch:path`:
+`oo cp` works like `scp`, with an environment name where the host would go. The last path is
+where to copy to, and paths in an environment are written `name:path`:
 
 ```sh
 oo cp notes.md login:              # into the repo's top folder
@@ -135,8 +128,8 @@ Copies go one way at a time, between your machine and one environment.
 | | |
 | --- | --- |
 | **Status** | `●` running · `◐` starting · `○` stopped. Running environments come first, then the rest by when you last used them. |
-| **Name** | Only when an environment on a branch has a name, like one made with `oo new -n`. An environment with no branch shows its name under Branch instead. |
-| **ID**, **Created** | Only when two environments share a branch: the end of each one's ID, and when it was created. |
+| **Name** | The environment's Ona name, or the end of its ID if it has none. Long names get cut short to fit the terminal. |
+| **ID**, **Created** | Only when two environments share a name: the end of each one's ID, and when it was created. |
 | **Active** | When Ona last saw activity in the environment. |
 | **Changes** | Uncommitted files. |
 
@@ -145,7 +138,10 @@ were when it stopped.
 
 ### Creating environments
 
-`oo new` needs a project to create from and an environment class (a machine in a region) to run
+`oo new NAME` gives the environment that name: letters, digits and hyphens. If another
+environment has it, oo adds the end of the new one's ID, like `login-fix-0ffee1`.
+
+It also needs a project to create from and an environment class (a machine in a region) to run
 on. Each defaults to whatever your newest environment used, so it usually does what you did last
 time. To choose, use the options or set them in your shell profile:
 
@@ -171,16 +167,16 @@ uv tool install --editable '.[ui]'
 $ oo ui
 
  oo  ·  8 environments, 2 running  ·  refreshed 4s ago  ·  ⏎ opens ssh in a new tmux window
-   Branch               Status                 Active     Changes
- ▸ adam/login-fix       ● running              4m ago
-   adam/billing-export  ◐ starting · 12s       2d ago     3 uncommitted
- ✓ adam/old-spike       ○ stopped              3w ago     1 uncommitted
-   adam/scratch         ✕ deleting · 3s        1w ago
+   Name                 Status                 Active     Changes
+ ▸ login-fix       ● running              4m ago
+   billing-export  ◐ starting · 12s       2d ago     3 uncommitted
+ ✓ old-spike       ○ stopped              3w ago     1 uncommitted
+   scratch         ✕ deleting · 3s        1w ago
  ──────────────────────────────────────────────────────────────────────────────────────
    login-fix  ·  https://github.com/acme/widgets.git  ·  created Nov 2 10:14  ·  id …0ffee1
    no uncommitted changes
  ──────────────────────────────────────────────────────────────────────────────────────
- ✓ Stopping adam/old-spike  1 uncommitted file stays on disk
+ ✓ Stopping old-spike  1 uncommitted file stays on disk
  ⏎ ssh  o code  a claude  n new  s start  D delete  ␣ mark  i info  L log  / filter  ? help  q quit
 ```
 
@@ -211,7 +207,6 @@ In iTerm2, WezTerm, kitty and Terminal.app, it opens in a new tab or window. Any
 
 | Variable | |
 | --- | --- |
-| `OO_BRANCH_PREFIX` | Your branch prefix, e.g. `adam/`. Dimmed in the list and optional when typing. |
 | `OO_EDITOR` | Default editor for `oo code`, `oo new -t code` and `o` in `oo ui`: an alias from `ona environment list-editors`, like `cursor` |
 | `OO_PROJECT` | Default project for `oo new` |
 | `OO_CLASS` | Default environment class for `oo new` |
@@ -238,9 +233,9 @@ key. [docs/claude-desktop.md](docs/claude-desktop.md) explains why, the security
 to clean up.
 
 The app adds a connection to its SSH picker the first time it opens an environment, called by
-its long host name. From then on, `oo claude` names it after the environment's branch (or its
-Ona name, if it has no branch), so you see `login-fix` there instead. A name you gave it in the
-app stays. To choose one, pass `--label`.
+its long host name. From then on, `oo claude` names it after the environment's Ona name (or
+the end of its ID, if it has none), so you see `login-fix` there instead. A name you gave it in
+the app stays. To choose one, pass `--label`.
 
 The app remembers each environment it has connected to in its SSH picker. `oo rm` takes the
 ones it deletes out of that list, and `oo claude --clean` takes out any left from environments
@@ -249,9 +244,10 @@ app's `ssh_configs.json`, and only touch connections to environments (`*.claude.
 `*.ona.environment`) that no longer exist. Stopped environments stay, with any names you gave
 them. If the app is open, quit and reopen it to see the list update.
 
-`oo new` notes which environments exist, runs `ona environment create`, and connects to the one
-that wasn't there before. With `-b BRANCH`, it then runs `ona environment exec` to fetch that
-branch and `git switch` to it before the `--then` steps. If that fails, oo warns and carries on.
+`oo new` notes which environments exist, runs `ona environment create --name`, and connects to
+the one that wasn't there before. With `-b BRANCH`, it then runs `ona environment exec` to
+fetch that branch and `git switch` to it before the `--then` steps. If that fails, oo warns and
+carries on.
 
 ## Development
 

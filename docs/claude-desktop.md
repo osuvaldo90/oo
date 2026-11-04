@@ -1,6 +1,6 @@
 # `oo claude` and the SSH workaround
 
-`oo claude <branch>` opens a Claude Code session on an Ona environment in the
+`oo claude <name>` opens a Claude Code session on an Ona environment in the
 [Claude desktop app](https://claude.ai/download). The app connects over SSH and installs a small
 helper server on the environment. On Ona environments that install failed until oo started
 using a second SSH server on the box. This document explains why, what oo changes on your
@@ -157,7 +157,7 @@ these steps don't remove it.
 ## Testing it
 
 On a fresh environment with no EFS home link (`ls -ld ~/.claude` should be a plain folder, and
-`/efs-home` shouldn't exist), `oo claude <branch>` should connect. The app's log is
+`/efs-home` shouldn't exist), `oo claude <name>` should connect. The app's log is
 `~/Library/Logs/Claude/ssh.log`. Success shows "Connected to remote server". Failure shows
 `NO_INSTALL_RESULT` or "Couldn't start the remote server". On the box,
 `find ~/.claude/remote -user root` should print nothing.

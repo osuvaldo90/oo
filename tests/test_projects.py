@@ -18,9 +18,7 @@ PROJECTS = [WIDGETS, GADGETS]
 
 
 def env(id: str, created: str, project: str = "p-1", env_class: str = "c-fr") -> Env:
-    return Env.from_json(
-        raw_env(id, f"sam/{id}", created=created, project=project, env_class=env_class)
-    )
+    return Env.from_json(raw_env(id, id, created=created, project=project, env_class=env_class))
 
 
 ENVS = [
