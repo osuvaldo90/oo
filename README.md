@@ -31,10 +31,10 @@ $ oo c login
   `oo new login-fix` gives a new environment its name.
 - **One glance at everything.** The list shows what's running, when you last used each
   environment, and any uncommitted work.
-- **Knows what you mean.** `oo c`, `oo open` and `oo claude` with no name use the one running
+- **Knows what you mean.** `oo c`, `oo code` and `oo claude` with no name use the one running
   environment, or let you pick from a list. Typos get a "did you mean".
 - **A fresh environment in one command.** `oo new NAME` creates an environment the way you did
-  last time and connects you to it.
+  last time and connects you to it, or opens it in your editor or the Claude app.
 - **Doesn't make you wait.** Starting, stopping and deleting return straight away while Ona
   carries on in the background.
 - **Quiet.** ona's own output stays behind a spinner with a timer. If something goes wrong, you
@@ -69,13 +69,16 @@ oo                            # list your environments
 oo c login-fix                # SSH into the one named login-fix, starting it if needed
 oo c                          # …the only running one, or pick from a list
 oo c login -- git status      # run one command instead of opening a shell
-oo open login -e cursor       # open it in Cursor (or set $OO_EDITOR)
+oo code login -e cursor       # open it in Cursor (or set $OO_EDITOR)
 oo claude login               # open a Claude Code session on it in the Claude desktop app
 oo claude login --label Login # …and call it Login in the app's SSH picker
 oo claude --clean             # take deleted environments out of the app's SSH connections
 oo cp notes.md dist login:    # copy files and folders into the repo on login-fix
 oo cp login:out/report.csv .  # …or out of it
 oo new login-fix              # create an environment named login-fix and SSH into it
+oo new login-fix -t code,ssh  # …open it in your editor, then SSH into it
+oo new login-fix -t claude    # …open it in the Claude desktop app instead
+oo new login-fix -t none      # …just create it
 oo start login billing        # warm some up in the background
 oo stop                       # stop the only running one (--all for every one)
 oo rm old-spike               # delete one
@@ -85,7 +88,8 @@ ona env logs $(oo id login)   # hand an ID to any other ona command
 ### In cmux
 
 In a [cmux](https://cmux.dev) terminal, `oo c`, `oo ssh` and `oo new` open the environment as a
-cmux workspace instead of SSH in the current tab. oo makes a tmux session named after the
+cmux workspace instead of SSH in the current tab (`oo new` only when `ssh` is one of its
+`--then` steps, which it is by default). oo makes a tmux session named after the
 environment, starting in its repo, and runs `cmux ssh-tmux` to mirror it. Each tmux window
 becomes a cmux tab. This needs cmux's "Remote tmux" beta setting. `oo c NAME -- COMMAND` still
 runs the command over plain SSH.
@@ -164,7 +168,7 @@ Ona has started the environment, oo connects to it. It starts on the project's d
 
 | Variable | |
 | --- | --- |
-| `OO_EDITOR` | Default editor for `oo open`: an alias from `ona environment list-editors`, like `cursor` |
+| `OO_EDITOR` | Default editor for `oo code` and `oo new -t code`: an alias from `ona environment list-editors`, like `cursor` |
 | `OO_PROJECT` | Default project for `oo new` |
 | `OO_CLASS` | Default environment class for `oo new` |
 | `OO_IDLE_TIMEOUT` | Seconds without typing before cmux's tmux clients detach. Defaults to 3600 (`ONA_IDLE_TIMEOUT` works too) |
@@ -174,7 +178,7 @@ Ona has started the environment, oo connects to it. It starts on the project's d
 oo reads your environments with `ona environment list --format json`, then passes the matching
 ID to `ona environment ssh`, `open`, `start`, `stop` or `delete`. It runs these with their output
 hidden behind a spinner, and if one fails, it shows the `Error:` and "Possible resolutions" ona
-printed. `oo c` and `oo open` start a stopped environment that way first, then replace themselves
+printed. `oo c` and `oo code` start a stopped environment that way first, then replace themselves
 with the ona process, so SSH gets your terminal to itself.
 
 `oo cp` hands the copy to `scp`, using the `<id>.ona.environment` host names that
