@@ -13,7 +13,7 @@ import typer
 from rich.console import Console
 from rich.prompt import Confirm, IntPrompt
 
-from . import __version__, claude, ona, render, ssh
+from . import __version__, claude, cmux, ona, render, ssh
 from .envs import MAX_NAME, Ambiguous, Env, NoMatch, name_taken, pick, safe_name, sort_envs
 from .ona import OnaError
 from .projects import CLASS_VAR, PROJECT_VAR, ChoiceError, pick_class, pick_project
@@ -242,10 +242,39 @@ def connect(
         ),
     ] = None,
 ) -> None:
-    """SSH into an environment, starting it first if it's stopped."""
+    """SSH into an environment, starting it first if it's stopped.
+
+    In a cmux terminal, opens its tmux session as a cmux workspace instead.
+    """
     env = _choose(_load(), name, "connect to")
-    render.heading(err, "Connecting to", env, _start_if_stopped(env))
-    ona.replace_with("environment", "ssh", env.id, *(["--", *command] if command else []))
+    note = _start_if_stopped(env)
+    if command:
+        render.heading(err, "Connecting to", env, note)
+        ona.replace_with("environment", "ssh", env.id, "--", *command)
+    _ssh_in(env, note)
+
+
+def _ssh_in(env: Env, note: str, name: str = "") -> NoReturn:
+    """Become an SSH session on `env`.
+
+    In a cmux terminal, have cmux mirror a tmux session on it instead, as a workspace named
+    `name`, or else after the environment.
+    """
+    cli = cmux.binary()
+    if not cli:
+        render.heading(err, "Connecting to", env, note)
+        ona.replace_with("environment", "ssh", env.id)
+    _set_up_ssh(env)
+    where = ssh.host(env.id)
+    render.heading(err, "Connecting to", env, ", ".join(n for n in (note, "in cmux") if n))
+    try:
+        with err.status(render.working("Setting up tmux…"), spinner_style=render.ACCENT):
+            cmux.prepare(where, cmux.session_name(name or env.label), env.checkout)
+    except cmux.CmuxError as e:
+        _fail(str(e), detail=e.detail, hint=e.hint)
+    except KeyboardInterrupt:
+        _cancelled()
+    cmux.replace_with_mirror(cli, where)
 
 
 @app.command("open")
@@ -482,7 +511,7 @@ def new(
         ),
     ] = None,
 ) -> None:
-    """Create an environment and connect to it."""
+    """Create an environment and connect to it, in a cmux workspace if you're in cmux."""
     if not safe_name(name):
         _fail(
             f"{name!r} can't be an environment name.",
@@ -530,12 +559,12 @@ def new(
             hint="Run [bold]oo[/] to look.",
         )
     note = f"created in {render.duration(took)}"
+    final = ""
     if name_taken(name, envs):
         final = _rename(created, f"{name}-{created.short_id}")
         if final:
             note += f" as {final}"
-    render.heading(err, "Connecting to", created, note)
-    ona.replace_with("environment", "ssh", created.id)
+    _ssh_in(created, note, name=final)
 
 
 def _rename(env: Env, name: str) -> str:

@@ -82,6 +82,18 @@ oo rm old-spike               # delete one
 ona env logs $(oo id login)   # hand an ID to any other ona command
 ```
 
+### In cmux
+
+In a [cmux](https://cmux.dev) terminal, `oo c`, `oo ssh` and `oo new` open the environment as a
+cmux workspace instead of SSH in the current tab. oo makes a tmux session named after the
+environment, starting in its repo, and runs `cmux ssh-tmux` to mirror it. Each tmux window
+becomes a cmux tab. This needs cmux's "Remote tmux" beta setting. `oo c NAME -- COMMAND` still
+runs the command over plain SSH.
+
+oo also starts an idle reaper in tmux. It detaches clients with no typing for an hour, so an idle
+environment can stop. Set `OO_IDLE_TIMEOUT` to change how many seconds that takes. The `oc` shell
+function shares the same reaper.
+
 ### Naming an environment
 
 Wherever oo asks for an environment, you can give:
@@ -155,6 +167,7 @@ Ona has started the environment, oo connects to it. It starts on the project's d
 | `OO_EDITOR` | Default editor for `oo open`: an alias from `ona environment list-editors`, like `cursor` |
 | `OO_PROJECT` | Default project for `oo new` |
 | `OO_CLASS` | Default environment class for `oo new` |
+| `OO_IDLE_TIMEOUT` | Seconds without typing before cmux's tmux clients detach. Defaults to 3600 (`ONA_IDLE_TIMEOUT` works too) |
 
 ## How it works
 
@@ -209,6 +222,7 @@ src/oo/
 ├── projects.py  # choosing a project and environment class for `oo new`
 ├── ona.py       # runs the ona CLI
 ├── ssh.py       # copies files with scp, for `oo cp`
+├── cmux.py      # mirrors an environment's tmux session as a cmux workspace
 ├── claude.py    # hands an environment to the Claude desktop app, for `oo claude`
 └── render.py    # everything you see
 docs/

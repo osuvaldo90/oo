@@ -6,7 +6,7 @@ import pytest
 from conftest import raw_env
 from typer.testing import CliRunner
 
-from oo import claude, cli, ona, ssh
+from oo import claude, cli, cmux, ona, ssh
 from oo.envs import Env
 from oo.ona import OnaError
 from oo.projects import EnvClass, Project
@@ -638,3 +638,67 @@ def test_new_still_connects_when_the_rename_fails(calls, monkeypatch, envs):
     result = oo("new", "auth-fix")
     assert "Ona couldn't rename the environment. It keeps the name" in result.output
     assert calls[-1] == ("environment", "ssh", "99999999-new")
+
+
+@pytest.fixture
+def in_cmux(monkeypatch, calls):
+    """Pretend to run in a cmux terminal, recording what oo asks of cmux."""
+    monkeypatch.setenv("CMUX_WORKSPACE_ID", "workspace-1")
+    monkeypatch.setattr(cmux, "binary", lambda: "/bin/cmux")
+    monkeypatch.setattr(
+        cmux, "prepare", lambda host, session, checkout="": calls.append(("tmux", host, session))
+    )
+
+    def mirror(cli, host):
+        calls.append(("cmux", "ssh-tmux", host))
+        raise Called
+
+    monkeypatch.setattr(cmux, "replace_with_mirror", mirror)
+    return calls
+
+
+def test_connects_in_a_cmux_workspace_in_cmux(in_cmux):
+    result = oo("c", "feat-10")
+    assert isinstance(result.exception, Called)
+    assert "in cmux" in result.output
+    assert in_cmux == [
+        ("tmux", "11111111-aaaa.ona.environment", "feat-10"),
+        ("cmux", "ssh-tmux", "11111111-aaaa.ona.environment"),
+    ]
+
+
+def test_ssh_is_c_in_cmux_too(in_cmux):
+    oo("ssh", "feat-10")
+    assert in_cmux[-1] == ("cmux", "ssh-tmux", "11111111-aaaa.ona.environment")
+
+
+def test_starts_a_stopped_one_before_opening_it_in_cmux(in_cmux):
+    oo("c", "docs")
+    assert in_cmux == [
+        ("environment", "start", "33333333-cccc"),
+        ("tmux", "33333333-cccc.ona.environment", "docs"),
+        ("cmux", "ssh-tmux", "33333333-cccc.ona.environment"),
+    ]
+
+
+def test_commands_still_run_over_plain_ssh_in_cmux(in_cmux):
+    oo("c", "feat-10", "--", "git", "status")
+    assert in_cmux == [("environment", "ssh", "11111111-aaaa", "--", "git", "status")]
+
+
+def test_new_opens_in_cmux_named_after_its_final_name(in_cmux, envs):
+    oo("new", "feat-10")
+    assert in_cmux[-2:] == [
+        ("tmux", "99999999-new.ona.environment", "feat-10-99-new"),
+        ("cmux", "ssh-tmux", "99999999-new.ona.environment"),
+    ]
+
+
+def test_cmux_failures_get_shown_nicely(in_cmux, monkeypatch):
+    def broken(host, session, checkout=""):
+        raise cmux.CmuxError("Couldn't set up tmux.", detail="tmux: command not found")
+
+    monkeypatch.setattr(cmux, "prepare", broken)
+    result = oo("c", "feat-10")
+    assert result.exit_code == 1
+    assert "tmux: command not found" in result.output
