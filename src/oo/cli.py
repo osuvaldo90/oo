@@ -200,7 +200,6 @@ MaybeBranches = Annotated[
     typer.Argument(help=BRANCH_HELP, autocompletion=_complete_branch, show_default=False),
 ]
 Wait = Annotated[bool, typer.Option("--wait", "-w", help="Wait for ona to finish.")]
-MAX_NAME = 80  # the longest name Ona takes for an environment
 
 
 def _version(value: bool) -> None:
@@ -219,7 +218,7 @@ EPILOG = (
     "  [cyan]oo claude login[/]              open it in the Claude desktop app\n"
     "  [cyan]oo cp notes.md login:[/]        copy a file into its repo\n"
     "  [cyan]oo cp login:out.csv .[/]        …or out of it\n"
-    "  [cyan]oo new[/]                       create an environment and connect to it\n"
+    "  [cyan]oo new login-fix[/]             create an environment named login-fix, connect\n"
     "  [cyan]oo stop --all[/]                stop everything that's running\n"
     "  [cyan]ona env logs $(oo id login)[/]  hand an ID to any other ona command\n\n"
     "[bold]Branch prefix[/]\n\n"
@@ -470,6 +469,14 @@ def copy(
 
 @app.command()
 def new(
+    name: Annotated[
+        str | None,
+        typer.Argument(
+            help="Name for the environment. oo shows it when there's no branch to show, "
+            "as with jj.",
+            show_default=False,
+        ),
+    ] = None,
     project: Annotated[
         str | None,
         typer.Option(
@@ -492,20 +499,8 @@ def new(
             show_default=False,
         ),
     ] = None,
-    name: Annotated[
-        str | None,
-        typer.Option(
-            "--name",
-            "-n",
-            help="A name for it, like [bold]login-fix[/], to find it by before it has a branch.",
-            show_default=False,
-        ),
-    ] = None,
 ) -> None:
     """Create an environment and connect to it."""
-    name = (name or "").strip()
-    if len(name) > MAX_NAME:
-        _fail(f"Ona takes names of up to {MAX_NAME} characters.", hint=f"That one has {len(name)}.")
     try:
         with (
             err.status(render.working("Asking Ona…"), spinner_style=render.ACCENT),
