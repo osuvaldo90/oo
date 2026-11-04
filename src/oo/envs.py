@@ -13,6 +13,13 @@ PREFIX_VAR = "OO_BRANCH_PREFIX"
 # IDs are UUIDv7s, which share a timestamp up front, so the end is what tells them apart.
 SHORT_ID_LENGTH = 6
 
+# Names double as SSH host names for the Claude app, so they must be one host name label: at
+# most 63 characters, less room for the `-` and short ID that `oo new` adds when one is taken.
+SAFE_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?")
+MAX_NAME = 63 - 1 - SHORT_ID_LENGTH
+
+GONE = ("deleting", "deleted")
+
 # What Ona reports when HEAD isn't on a branch, as jj always leaves it.
 DETACHED = "(detached)"
 
@@ -26,6 +33,16 @@ def branch_prefix() -> str:
     if prefix and prefix[-1].isalnum():
         prefix += "/"
     return prefix
+
+
+def safe_name(name: str) -> bool:
+    """Whether `name` works as an SSH host name: letters, digits and inner hyphens."""
+    return len(name) <= MAX_NAME and SAFE_NAME.fullmatch(name) is not None
+
+
+def name_taken(name: str, envs: list[Env], but: str = "") -> bool:
+    """Whether an environment other than `but` has `name`, ignoring case as host names do."""
+    return any(e.name.lower() == name.lower() for e in envs if e.id != but and e.phase not in GONE)
 
 
 def _dig(data: Any, *path: str | int) -> Any:

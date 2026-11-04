@@ -127,6 +127,7 @@ def test_set_up_host_writes_a_host_entry_and_authorizes_the_key(home):
         "  HostKeyAlias abc-123.claude.oo",
         "  ProxyJump abc-123.ona.environment",
         "  StrictHostKeyChecking accept-new",
+        "  # env abc-123",
         f"  # last used {date.today().isoformat()}",
     ]
     assert "StrictHostKeyChecking no" not in config
@@ -260,6 +261,33 @@ def test_forget_knows_oos_own_hosts_as_well_as_onas(ssh_configs):
     assert data["trustedHosts"] == []
 
 
+def _own_config(ssh_configs, text: str) -> None:
+    folder = ssh_configs.parent / ".ssh" / "oo"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "config").write_text(text)
+
+
+def test_forget_knows_named_hosts_by_the_environment_oos_config_says(ssh_configs):
+    _own_config(
+        ssh_configs,
+        "Host login-fix.claude.oo\n  # env live-1\n\nHost old-work.claude.oo\n  # env dead-1\n",
+    )
+    live = {"id": "a", "name": "Login", "sshHost": "login-fix.claude.oo"}
+    dead = {"id": "b", "name": "Old", "sshHost": "old-work.claude.oo"}
+    _write_configs(ssh_configs, [live, dead], ["login-fix.claude.oo", "old-work.claude.oo"])
+    assert claude.forget(lambda env: env not in {"live-1"}) == ["Old"]
+    data = json.loads(ssh_configs.read_text())
+    assert data["configs"] == [live]
+    assert data["trustedHosts"] == ["login-fix.claude.oo"]
+
+
+def test_forget_goes_by_the_name_once_oos_config_forgets_the_host(ssh_configs):
+    named = {"id": "a", "name": "Login", "sshHost": "login-fix.claude.oo"}
+    _write_configs(ssh_configs, [named], [])
+    assert claude.forget(lambda env: env not in {"live-1", "login-fix"}) == []
+    assert claude.forget(lambda env: env == "login-fix") == ["Login"]
+
+
 def test_forget_tidies_trusted_hosts_left_without_a_connection(ssh_configs):
     _write_configs(ssh_configs, [], ["dead.ona.environment"])
     assert claude.forget(lambda env_id: True) == []
@@ -369,3 +397,38 @@ def test_name_connection_renames_when_asked(ssh_configs):
 def test_name_connection_says_nothing_changed_when_its_already_named_that(ssh_configs):
     _write_configs(ssh_configs, [_connection("env", "login-fix")], [])
     assert claude.name_connection("env.ona.environment", "login-fix", rename=True) is None
+
+
+def test_set_up_host_names_the_host_after_the_environment(home):
+    folder, _ = home
+    assert claude.set_up_host("abc-123", {"abc-123"}, name="login-fix") == "login-fix.claude.oo"
+    config = (folder / ".ssh" / "oo" / "config").read_text().splitlines()
+    assert config[0] == "Host login-fix.claude.oo"
+    assert "  HostKeyAlias login-fix.claude.oo" in config
+    assert "  ProxyJump abc-123.ona.environment" in config
+    assert "  # env abc-123" in config
+
+
+def test_set_up_host_replaces_the_environments_older_hosts(home):
+    folder, _ = home
+    claude.set_up_host("abc-123", {"abc-123"})
+    claude.set_up_host("abc-123", {"abc-123"}, name="login-fix")
+    claude.set_up_host("abc-123", {"abc-123"}, name="auth-fix")
+    hosts = (folder / ".ssh" / "oo" / "config").read_text().splitlines()
+    assert [line for line in hosts if line.startswith("Host ")] == ["Host auth-fix.claude.oo"]
+
+
+def test_set_up_host_goes_by_the_env_line_over_the_alias(home):
+    folder, _ = home
+    today = date.today().isoformat()
+    (folder / ".ssh" / "oo").mkdir()
+    (folder / ".ssh" / "oo" / "config").write_text(
+        f"Host kept.claude.oo\n  # env kept-2\n  # last used {today}\n\n"
+        f"Host gone.claude.oo\n  # env gone-1\n  # last used {today}\n"
+    )
+    claude.set_up_host("abc-123", {"abc-123", "kept-2"}, name="new")
+    hosts = (folder / ".ssh" / "oo" / "config").read_text().splitlines()
+    assert [line for line in hosts if line.startswith("Host ")] == [
+        "Host kept.claude.oo",
+        "Host new.claude.oo",
+    ]

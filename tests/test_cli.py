@@ -56,7 +56,7 @@ def calls(monkeypatch, envs):
     monkeypatch.setattr(ssh, "configured", lambda env_id: True)
     monkeypatch.setattr(ssh, "replace_with_scp", lambda *args: replace_with("scp", *args))
     monkeypatch.setattr(claude, "check_installed", lambda: None)
-    monkeypatch.setattr(claude, "set_up_host", lambda env_id, live_ids: ssh.host(env_id))
+    monkeypatch.setattr(claude, "set_up_host", lambda env_id, live_ids, name="": ssh.host(env_id))
     monkeypatch.setattr(claude, "open_link", lambda url: record.append(("open", url)))
     monkeypatch.setenv("OO_BRANCH_PREFIX", "sam")
     return record
@@ -162,8 +162,13 @@ def test_claude_opens_the_only_running_one_in_the_desktop_app(calls):
     assert calls == [("open", link)]
 
 
+def own_host(env_id, live_ids, name=""):
+    """A fake set_up_host that works, as it would with the box's own sshd running."""
+    return claude.own_host(env_id, name)
+
+
 def test_claude_uses_the_environments_own_sshd_when_it_can(calls, monkeypatch):
-    monkeypatch.setattr(claude, "set_up_host", lambda env_id, live_ids: f"{env_id}.claude.oo")
+    monkeypatch.setattr(claude, "set_up_host", own_host)
     result = oo("claude")
     assert result.exit_code == 0
     link = "claude://code/new?ssh_host=11111111-aaaa.claude.oo&ssh_folder=%2Fworkspaces%2Fwidgets"
@@ -171,7 +176,7 @@ def test_claude_uses_the_environments_own_sshd_when_it_can(calls, monkeypatch):
 
 
 def test_claude_falls_back_to_onas_host_and_says_why(calls, monkeypatch):
-    def unavailable(env_id, live_ids):
+    def unavailable(env_id, live_ids, name=""):
         raise claude.ClaudeError("Nothing is listening on port 2222 in the environment.")
 
     monkeypatch.setattr(claude, "set_up_host", unavailable)
@@ -247,7 +252,9 @@ def test_claude_leaves_the_file_alone_before_the_app_has_connected(calls, ssh_co
 
 
 def test_claude_names_the_connection_the_link_opens(calls, ssh_configs, monkeypatch):
-    monkeypatch.setattr(claude, "set_up_host", lambda env_id, live_ids: f"{env_id}.claude.oo")
+    monkeypatch.setattr(
+        claude, "set_up_host", lambda env_id, live_ids, name="": f"{env_id}.claude.oo"
+    )
     _unnamed(ssh_configs, "33333333-cccc.ona.environment", "33333333-cccc.claude.oo")
     oo("claude", "docs")
     assert _names(ssh_configs) == {
@@ -579,3 +586,65 @@ def test_rm_wait_still_fails_on_real_errors(calls, monkeypatch):
     result = oo("rm", "feat-10", "--wait")
     assert result.exit_code == 1
     assert "permission denied" in result.output
+
+
+def named(envs, *names):
+    """Give the environments in `envs` these names, in order."""
+    raws = [
+        dict(r, metadata={**r["metadata"], "name": n}) for r, n in zip(RAW, names, strict=False)
+    ]
+    envs[: len(raws)] = [Env.from_json(r) for r in raws]
+
+
+def test_claude_names_the_host_after_the_environment(calls, monkeypatch, envs):
+    monkeypatch.setattr(claude, "set_up_host", own_host)
+    named(envs, "login-fix")
+    oo("claude")
+    assert calls[0][1].startswith("claude://code/new?ssh_host=login-fix.claude.oo&")
+
+
+@pytest.mark.parametrize("names", [("login fix",), ("login-fix", "Login-Fix")])
+def test_claude_goes_by_id_when_the_name_wont_do_as_a_host(calls, monkeypatch, envs, names):
+    monkeypatch.setattr(claude, "set_up_host", own_host)
+    named(envs, *names)
+    oo("claude", "feat-10")
+    assert calls[0][1].startswith("claude://code/new?ssh_host=11111111-aaaa.claude.oo&")
+
+
+@pytest.mark.parametrize("name", ["login fix", "-x", "x-", "a_b", "a.b", "a" * 57])
+def test_new_refuses_names_that_wont_do_as_a_host(calls, name):
+    result = oo("new", "--", name)
+    assert result.exit_code == 1
+    assert "Use up to 56 letters, digits and hyphens" in result.output
+    assert calls == []
+
+
+def test_new_adds_the_end_of_the_id_when_the_name_is_taken(calls, envs):
+    named(envs, "Auth-Fix")
+    result = oo("new", "auth-fix")
+    assert calls[1:] == [
+        ("environment", "update", "99999999-new", "--name", "auth-fix-99-new"),
+        ("environment", "ssh", "99999999-new"),
+    ]
+    assert "as auth-fix-99-new" in result.output
+
+
+def test_new_doesnt_count_names_of_environments_being_deleted(calls, envs):
+    envs.append(Env.from_json(raw_env("44444444-dddd", "main", "deleting", name="auth-fix")))
+    oo("new", "auth-fix")
+    assert [c[1] for c in calls] == ["create", "ssh"]
+
+
+def test_new_still_connects_when_the_rename_fails(calls, monkeypatch, envs):
+    named(envs, "auth-fix")
+    fake = ona.quietly
+
+    def quietly(*args, failed, on_tick=None):
+        if args[:2] == ("environment", "update"):
+            raise OnaError(failed, detail="permission denied")
+        return fake(*args, failed=failed, on_tick=on_tick)
+
+    monkeypatch.setattr(ona, "quietly", quietly)
+    result = oo("new", "auth-fix")
+    assert "Ona couldn't rename the environment. It keeps the name" in result.output
+    assert calls[-1] == ("environment", "ssh", "99999999-new")
