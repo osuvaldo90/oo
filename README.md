@@ -79,6 +79,7 @@ oo new login-fix              # create an environment named login-fix and SSH in
 oo new login-fix -t code,ssh  # …open it in your editor, then SSH into it
 oo new login-fix -t claude    # …open it in the Claude desktop app instead
 oo new login-fix -t none      # …just create it
+oo new pr-9 -b pr-9 -t code   # …check out branch pr-9, then open your editor
 oo start login billing        # warm some up in the background
 oo stop                       # stop the only running one (--all for every one)
 oo rm old-spike               # delete one
@@ -206,7 +207,9 @@ app's `ssh_configs.json`, and only touch connections to environments (`*.claude.
 them. If the app is open, quit and reopen it to see the list update.
 
 `oo new` notes which environments exist, runs `ona environment create --name`, and connects to
-the one that wasn't there before.
+the one that wasn't there before. With `-b BRANCH`, it then runs `ona environment exec` to
+fetch that branch and `git switch` to it before the `--then` steps. If that fails, oo warns and
+carries on.
 
 ## Development
 

@@ -239,6 +239,7 @@ EPILOG = (
     "  [cyan]oo new login-fix[/]             create an environment named login-fix, connect\n"
     "                               (login-fix-<end of ID> if the name is taken)\n"
     "  [cyan]oo new login-fix -t code,ssh[/] …open it in your editor, then connect\n"
+    "  [cyan]oo new pr-9 -b pr-9 -t code[/]  …check out branch pr-9 first\n"
     "  [cyan]oo stop --all[/]                stop everything that's running\n"
     "  [cyan]ona env logs $(oo id login)[/]  hand an ID to any other ona command\n\n"
     "Any unique part of a name works too, like [cyan]oo c login[/]."
@@ -557,6 +558,16 @@ def new(
             show_default=False,
         ),
     ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            "-b",
+            help="Branch to check out once it's ready, before the [bold]--then[/] steps. "
+            "If the checkout fails, oo warns and carries on.",
+            show_default=False,
+        ),
+    ] = None,
     editor: Editor = None,
 ) -> None:
     """Create an environment, then connect to it or open it (see [bold]--then[/]).
@@ -567,6 +578,11 @@ def new(
         _fail(
             f"{name!r} can't be an environment name.",
             hint=f"Use up to {MAX_NAME} letters, digits and hyphens, like [bold]login-fix[/].",
+        )
+    if branch is not None and not safe_branch(branch):
+        _fail(
+            f"{branch!r} can't be a branch name.",
+            hint="Give a branch without spaces that doesn't start with a hyphen.",
         )
     steps = _then_steps(then)
     if "claude" in steps:
@@ -622,6 +638,9 @@ def new(
         final = _rename(created, f"{name}-{created.short_id}")
         if final:
             note += f" as {final}"
+    if branch:
+        _check_out(created, branch, note)
+        note = ""
     if steps == ["none"]:
         render.success(err, f"Created {created.label}", note)
         return
@@ -637,6 +656,44 @@ def new(
         note = ""
     if "ssh" in steps:
         _ssh_in(created, note, name=final)
+
+
+# Fetch the branch by name, so it works on shallow and single-branch clones too, then switch to
+# it. The branch comes in as $1 rather than in the script, so it needs no quoting.
+CHECK_OUT = 'git fetch origin "$1:refs/remotes/origin/$1" && git switch "$1"'
+# Seconds to give the fetch and switch: more than ona's default of 120, for big repos.
+CHECK_OUT_TIMEOUT = "600"
+
+
+def safe_branch(branch: str) -> bool:
+    """Whether `branch` can go to git as a branch, not be taken for an option."""
+    return bool(branch) and not branch.startswith("-") and not any(c.isspace() for c in branch)
+
+
+def _check_out(env: Env, branch: str, note: str = "") -> None:
+    """Have ona check `branch` out in `env`, and carry on. Only warns if it can't."""
+    render.heading(err, "Checking out", env, ", ".join(n for n in (note, branch) if n))
+    try:
+        with err.status(render.working(f"Checking out {branch}…"), spinner_style=render.ACCENT):
+            ona.quietly(
+                "environment",
+                "exec",
+                env.id,
+                "--timeout",
+                CHECK_OUT_TIMEOUT,
+                *(["--working-dir", env.checkout] if env.checkout else []),
+                "--",
+                "sh",
+                "-c",
+                CHECK_OUT,
+                "sh",
+                branch,
+                failed=f"Ona couldn't check out {branch}.",
+            )
+    except OnaError as e:
+        render.warning(err, str(e), detail=e.detail)
+    except KeyboardInterrupt:
+        _cancelled()
 
 
 def _open_in_editor(env: Env, editor: str | None, note: str = "") -> None:
