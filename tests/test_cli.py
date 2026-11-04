@@ -436,13 +436,20 @@ def test_vague_names_get_asked_about_too(calls, monkeypatch):
 
 
 def test_new_reuses_your_latest_project_and_class_then_connects(calls):
-    result = oo("new")
+    result = oo("new", "auth-fix")
     assert "from Widgets" in result.output
     assert "m7i.xlarge in Frankfurt" in result.output
     assert calls == [
-        ("environment", "create", "p-1", "--class-id", "c-fr"),
+        ("environment", "create", "p-1", "--class-id", "c-fr", "--name", "auth-fix"),
         ("environment", "ssh", "99999999-new"),
     ]
+
+
+def test_new_needs_a_name(calls):
+    result = oo("new")
+    assert result.exit_code == 2
+    assert "Missing argument 'name'" in result.output
+    assert calls == []
 
 
 def made_alongside_another(envs, printed: str):
@@ -462,13 +469,13 @@ def test_new_connects_to_its_own_environment_when_another_is_made_alongside(
     calls, monkeypatch, envs
 ):
     monkeypatch.setattr(ona, "quietly", made_alongside_another(envs, "99999999-new\n"))
-    oo("new")
+    oo("new", "x")
     assert calls == [("environment", "ssh", "99999999-new")]
 
 
 def test_new_wont_guess_between_new_environments(calls, monkeypatch, envs):
     monkeypatch.setattr(ona, "quietly", made_alongside_another(envs, "Environment created\n"))
-    result = oo("new")
+    result = oo("new", "x")
     assert result.exit_code == 1
     assert "can't tell which environment is yours" in result.output
     assert calls == []
@@ -477,30 +484,18 @@ def test_new_wont_guess_between_new_environments(calls, monkeypatch, envs):
 def test_new_takes_project_and_class_from_the_environment(calls, monkeypatch):
     monkeypatch.setenv("OO_PROJECT", "widgets")
     monkeypatch.setenv("OO_CLASS", "tokyo")
-    oo("new")
-    assert calls[0] == ("environment", "create", "p-1", "--class-id", "c-tk")
-
-
-def test_new_names_the_environment(calls):
-    oo("new", "--name", " login-fix ")
-    assert calls[0] == ("environment", "create", "p-1", "--class-id", "c-fr", "--name", "login-fix")
-
-
-def test_new_refuses_names_ona_wont_take(calls):
-    result = oo("new", "-n", "x" * 81)
-    assert result.exit_code == 1
-    assert "up to 80 characters" in result.output
-    assert calls == []
+    oo("new", "x")
+    assert calls[0] == ("environment", "create", "p-1", "--class-id", "c-tk", "--name", "x")
 
 
 def test_new_complains_about_unknown_classes(calls):
-    result = oo("new", "--class", "mars")
+    result = oo("new", "x", "--class", "mars")
     assert result.exit_code == 1
     assert "m7i.xlarge in Tokyo, m7i.xlarge in Frankfurt" in result.output
     assert calls == []
 
 
-CREATE = ("environment", "create", "p-1", "--class-id", "c-fr")
+CREATE = ("environment", "create", "p-1", "--class-id", "c-fr", "--name", "auth-fix")
 NEW_LINK = (
     "claude://code/new?ssh_host=99999999-new.ona.environment&ssh_folder=%2Fworkspaces%2Fwidgets"
 )
@@ -511,7 +506,7 @@ NEW_LINK = (
 )
 def test_new_then_opens_the_editor_before_connecting(calls, monkeypatch, then):
     monkeypatch.delenv("OO_EDITOR", raising=False)
-    result = oo("new", *then)
+    result = oo("new", "auth-fix", *then)
     assert isinstance(result.exception, Called)
     assert calls == [
         CREATE,
@@ -522,32 +517,32 @@ def test_new_then_opens_the_editor_before_connecting(calls, monkeypatch, then):
 
 def test_new_then_code_uses_the_editor_you_name(calls, monkeypatch):
     monkeypatch.setenv("OO_EDITOR", "vscode")
-    oo("new", "-t", "code", "-e", "cursor")
+    oo("new", "auth-fix", "-t", "code", "-e", "cursor")
     assert calls[-1] == ("environment", "open", "99999999-new", "--editor", "cursor")
 
 
 def test_new_then_code_uses_oo_editor(calls, monkeypatch):
     monkeypatch.setenv("OO_EDITOR", "cursor")
-    result = oo("new", "-t", "code")
+    result = oo("new", "auth-fix", "-t", "code")
     assert result.exit_code == 0
     assert calls == [CREATE, ("environment", "open", "99999999-new", "--editor", "cursor")]
 
 
 def test_new_then_does_each_step_once(calls, monkeypatch):
     monkeypatch.delenv("OO_EDITOR", raising=False)
-    oo("new", "-t", "code", "-t", "code,code")
+    oo("new", "auth-fix", "-t", "code", "-t", "code,code")
     assert calls == [CREATE, ("environment", "open", "99999999-new")]
 
 
 def test_new_then_claude_opens_the_desktop_app_and_doesnt_connect(calls):
-    result = oo("new", "-t", "claude")
+    result = oo("new", "auth-fix", "-t", "claude")
     assert result.exit_code == 0
     assert "Opening in Claude" in result.output
     assert calls == [CREATE, ("open", NEW_LINK)]
 
 
 def test_new_then_none_only_creates(calls):
-    result = oo("new", "-t", "none")
+    result = oo("new", "auth-fix", "-t", "none")
     assert result.exit_code == 0
     assert "Created main" in result.output
     assert calls == [CREATE]
@@ -562,7 +557,7 @@ def test_new_then_none_only_creates(calls):
     ],
 )
 def test_new_then_refuses_bad_steps_before_creating(calls, then, says):
-    result = oo("new", *then)
+    result = oo("new", "auth-fix", *then)
     assert result.exit_code == 1
     assert says in result.output
     assert calls == []
@@ -573,7 +568,7 @@ def test_new_then_claude_checks_for_the_app_before_creating(calls, monkeypatch):
         raise claude.ClaudeError("The Claude desktop app isn't installed.")
 
     monkeypatch.setattr(claude, "check_installed", missing)
-    result = oo("new", "-t", "claude")
+    result = oo("new", "auth-fix", "-t", "claude")
     assert result.exit_code == 1
     assert "isn't installed" in result.output
     assert calls == []
@@ -589,7 +584,7 @@ def test_new_carries_on_when_the_editor_wont_open(calls, monkeypatch):
         return fake(*args, failed=failed, on_tick=on_tick)
 
     monkeypatch.setattr(ona, "quietly", quietly)
-    result = oo("new", "-t", "code,claude,ssh")
+    result = oo("new", "auth-fix", "-t", "code,claude,ssh")
     assert "Ona couldn't open your editor." in result.output
     assert "no editor found" in result.output
     assert calls == [CREATE, ("open", NEW_LINK), ("environment", "ssh", "99999999-new")]
@@ -600,7 +595,7 @@ def test_new_carries_on_when_the_claude_app_wont_open(calls, monkeypatch):
         raise claude.ClaudeError("Couldn't open the Claude desktop app.")
 
     monkeypatch.setattr(claude, "open_link", broken)
-    result = oo("new", "-t", "claude", "-t", "ssh")
+    result = oo("new", "auth-fix", "-t", "claude", "-t", "ssh")
     assert "Couldn't open the Claude desktop app." in result.output
     assert calls == [CREATE, ("environment", "ssh", "99999999-new")]
 
@@ -623,7 +618,7 @@ CHECK_OUT = (
 
 
 def test_new_branch_checks_it_out_even_with_then_none(calls):
-    result = oo("new", "-b", "pr-123-branch", "-t", "none")
+    result = oo("new", "auth-fix", "-b", "pr-123-branch", "-t", "none")
     assert result.exit_code == 0
     assert "Checking out" in result.output
     assert calls == [CREATE, CHECK_OUT]
@@ -631,7 +626,7 @@ def test_new_branch_checks_it_out_even_with_then_none(calls):
 
 def test_new_branch_checks_out_before_the_then_steps(calls, monkeypatch):
     monkeypatch.delenv("OO_EDITOR", raising=False)
-    result = oo("new", "--branch", "pr-123-branch", "-t", "code,ssh")
+    result = oo("new", "auth-fix", "--branch", "pr-123-branch", "-t", "code,ssh")
     assert isinstance(result.exception, Called)
     assert calls == [
         CREATE,
@@ -651,7 +646,7 @@ def test_new_carries_on_when_the_checkout_fails(calls, monkeypatch):
         return fake(*args, failed=failed, on_tick=on_tick)
 
     monkeypatch.setattr(ona, "quietly", quietly)
-    result = oo("new", "-b", "pr-123-branch")
+    result = oo("new", "auth-fix", "-b", "pr-123-branch")
     assert isinstance(result.exception, Called)
     assert "Ona couldn't check out pr-123-branch." in result.output
     assert "invalid reference" in result.output
@@ -660,7 +655,7 @@ def test_new_carries_on_when_the_checkout_fails(calls, monkeypatch):
 
 @pytest.mark.parametrize("branch", ["", "-x", "a b"])
 def test_new_refuses_bad_branches_before_creating(calls, branch):
-    result = oo("new", "-b", branch)
+    result = oo("new", "auth-fix", "-b", branch)
     assert result.exit_code == 1
     assert "can't be a branch name" in result.output
     assert calls == []

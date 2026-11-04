@@ -211,7 +211,6 @@ Editor = Annotated[
         show_default=False,
     ),
 ]
-MAX_NAME = 80  # the longest name Ona takes for an environment
 
 # What oo new can do once the environment is ready, in the order it does them. ssh comes
 # last because it replaces oo.
@@ -256,9 +255,9 @@ EPILOG = (
     "  [cyan]oo claude login[/]              open it in the Claude desktop app\n"
     "  [cyan]oo cp notes.md login:[/]        copy a file into its repo\n"
     "  [cyan]oo cp login:out.csv .[/]        …or out of it\n"
-    "  [cyan]oo new[/]                       create an environment and connect to it\n"
-    "  [cyan]oo new -t code,ssh[/]           …open it in your editor, then connect\n"
-    "  [cyan]oo new -b pr-9 -t code[/]       …check out branch pr-9 first\n"
+    "  [cyan]oo new login-fix[/]             create an environment named login-fix, connect\n"
+    "  [cyan]oo new login-fix -t code,ssh[/] …open it in your editor, then connect\n"
+    "  [cyan]oo new pr-9 -b pr-9 -t code[/]  …check out branch pr-9 first\n"
     "  [cyan]oo stop --all[/]                stop everything that's running\n"
     "  [cyan]ona env logs $(oo id login)[/]  hand an ID to any other ona command\n\n"
     "[bold]Branch prefix[/]\n\n"
@@ -504,6 +503,14 @@ def copy(
 
 @app.command()
 def new(
+    name: Annotated[
+        str,
+        typer.Argument(
+            help="Name for the environment. oo shows it when there's no branch to show, "
+            "as with jj.",
+            show_default=False,
+        ),
+    ],
     project: Annotated[
         str | None,
         typer.Option(
@@ -523,15 +530,6 @@ def new(
             envvar=CLASS_VAR,
             help="Where to run it: a region like [bold]frankfurt[/], optionally with a machine "
             "like [bold]m7i[/], or a class ID. Defaults to what your newest environment runs on.",
-            show_default=False,
-        ),
-    ] = None,
-    name: Annotated[
-        str | None,
-        typer.Option(
-            "--name",
-            "-n",
-            help="A name for it, like [bold]login-fix[/], to find it by before it has a branch.",
             show_default=False,
         ),
     ] = None,
@@ -561,9 +559,6 @@ def new(
     editor: Editor = None,
 ) -> None:
     """Create an environment, then connect to it or open it (see [bold]--then[/])."""
-    name = (name or "").strip()
-    if len(name) > MAX_NAME:
-        _fail(f"Ona takes names of up to {MAX_NAME} characters.", hint=f"That one has {len(name)}.")
     if branch is not None and not safe_branch(branch):
         _fail(
             f"{branch!r} can't be a branch name.",
@@ -602,7 +597,8 @@ def new(
         "create",
         chosen.id,
         *(["--class-id", where.id] if where else []),
-        *(["--name", name] if name else []),
+        "--name",
+        name,
         failed="Ona couldn't create the environment.",
         cancelled="Ona may still finish creating it. Run oo to check.",
     )

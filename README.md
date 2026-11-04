@@ -33,8 +33,8 @@ $ oo c login
   environment, its pull request, and any work that isn't on GitHub yet.
 - **Knows what you mean.** `oo c`, `oo code` and `oo claude` with no branch use the one running
   environment, or let you pick from a list. Typos get a "did you mean".
-- **A fresh environment in one command.** `oo new` creates an environment the way you did last
-  time and connects you to it, or opens it in your editor or the Claude app.
+- **A fresh environment in one command.** `oo new NAME` creates an environment the way you did
+  last time and connects you to it, or opens it in your editor or the Claude app.
 - **Doesn't make you wait.** Starting, stopping and deleting return straight away while Ona
   carries on in the background.
 - **Quiet.** ona's own output stays behind a spinner with a timer. If something goes wrong, you
@@ -83,12 +83,11 @@ oo claude login --label Login # …and call it Login in the app's SSH picker
 oo claude --clean             # take deleted environments out of the app's SSH connections
 oo cp notes.md dist login:    # copy files and folders into the repo on adam/login-fix
 oo cp login:out/report.csv .  # …or out of it
-oo new                        # create an environment and SSH into it
-oo new -n login-fix           # …named login-fix, so oo c login-fix finds it
-oo new -t code,ssh            # …open it in your editor, then SSH into it
-oo new -t claude              # …open it in the Claude desktop app instead
-oo new -t none                # …just create it
-oo new -b pr-9 -t code        # …check out branch pr-9, then open your editor
+oo new login-fix              # create an environment named login-fix and SSH into it
+oo new login-fix -t code,ssh  # …open it in your editor, then SSH into it
+oo new login-fix -t claude    # …open it in the Claude desktop app instead
+oo new login-fix -t none      # …just create it
+oo new pr-9 -b pr-9 -t code   # …check out branch pr-9, then open your editor
 oo start login billing        # warm some up in the background
 oo stop                       # stop the only running one (--all for every one)
 oo rm old-spike               # delete one
@@ -157,7 +156,6 @@ time. To choose, use the options or set them in your shell profile:
 | --- | --- | --- | --- |
 | **Project** | `-p, --project` | `OO_PROJECT` | An ID or name from `ona project list` |
 | **Class** | `-c, --class` | `OO_CLASS` | An ID from `ona environment list-classes`, or words that pick one out, like `frankfurt` or `tokyo m7i` |
-| **Name** | `-n, --name` | | Up to 80 characters. oo finds it by this name, as it does by branch |
 
 Class words prefer the classes the project offers, the same choices as Ona's region picker. Once
 Ona has started the environment, oo connects to it. It starts on the project's default branch.

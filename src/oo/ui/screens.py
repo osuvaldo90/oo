@@ -130,7 +130,7 @@ class NewEnvironment(ModalScreen[NewRequest | None]):
             yield Label("Name", classes="field")
             yield Input(
                 value=self.initial_name,
-                placeholder="optional · what oo and the Claude app call it",
+                placeholder="what oo and the Claude app call it, like login-fix",
                 id="name",
             )
             yield Static("", id="name-note", classes="note")
@@ -213,6 +213,10 @@ class NewEnvironment(ModalScreen[NewRequest | None]):
 
     def _create(self) -> None:
         name = self.query_one("#name", Input).value.strip()
+        if not name:
+            self.query_one("#name-note", Static).update("Give it a name.")
+            self.query_one("#name", Input).focus()
+            return
         if not self._check_name(name):
             return
         project = self._project()
