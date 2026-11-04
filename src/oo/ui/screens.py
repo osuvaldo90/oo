@@ -24,13 +24,10 @@ from textual.widgets import (
 from textual.widgets.option_list import Option
 
 from .. import render
-from ..envs import Env
+from ..envs import MAX_NAME, Env, name_taken, safe_name
 from ..projects import EnvClass, Project
 from .model import ACTIVE
 from .ops import Editor
-
-# The longest name Ona takes for an environment.
-NAME_LIMIT = 80
 
 THEN_STEPS = (
     ("connect", "SSH into it"),
@@ -190,12 +187,14 @@ class NewEnvironment(ModalScreen[NewRequest | None]):
         """Say what's up with the name, and whether it can go to Ona."""
         name = name.strip()
         note = self.query_one("#name-note", Static)
-        if len(name) > NAME_LIMIT:
-            note.update(f"Ona takes names of up to {NAME_LIMIT} characters; that's {len(name)}.")
+        if name and not safe_name(name):
+            note.update(f"Use up to {MAX_NAME} letters, digits and hyphens, like login-fix.")
             note.set_class(True, "warn")
             return False
-        taken = any(e.name.lower() == name.lower() for e in self.envs) if name else False
-        note.update("Another environment has this name." if taken else "")
+        taken = bool(name) and name_taken(name, self.envs)
+        note.update(
+            f"Another environment has this name; it'll be {name}-<end of ID>." if taken else ""
+        )
         note.set_class(taken, "warn")
         return True
 

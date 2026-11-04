@@ -53,16 +53,20 @@ def link(env_id: str, checkout: str = "", host: str = "") -> str:
     return f"claude://code/new?{urlencode(params)}"
 
 
-def own_host(env_id: str) -> str:
-    """The SSH host that reaches the environment's own sshd, through Ona's."""
-    return f"{env_id}{HOST_SUFFIX}"
+def own_host(env_id: str, name: str = "") -> str:
+    """The SSH host that reaches the environment's own sshd, through Ona's.
+
+    It's named `name` if given, since the app shows the host as the remote's name.
+    """
+    return f"{name or env_id}{HOST_SUFFIX}"
 
 
-def set_up_host(env_id: str, live_ids: set[str]) -> str:
+def set_up_host(env_id: str, live_ids: set[str], name: str = "") -> str:
     """Set up `own_host` for `env_id`, and return its name for the app to use.
 
     Raises ClaudeError if that can't be done, so the caller can fall back to Ona's own host.
-    `live_ids` are the environments that still exist; the others are forgotten.
+    `live_ids` are the environments that still exist; the others are forgotten. `name` must
+    already be safe as a host name.
     """
     try:
         _ensure_included()
@@ -76,10 +80,10 @@ def set_up_host(env_id: str, live_ids: set[str]) -> str:
         if not USER_PATTERN.fullmatch(user):
             raise ClaudeError(f"The environment's user name, {user!r}, looks odd.")
         _authorize(env_id, key.with_name(f"{KEY_NAME}.pub").read_text().strip())
-        _write_config(env_id, user, live_ids)
+        _write_config(env_id, user, live_ids, name)
     except ssh.SshError as e:
         raise ClaudeError(str(e), hint=e.hint) from e
-    return own_host(env_id)
+    return own_host(env_id, name)
 
 
 def _ssh_dir() -> Path:
@@ -176,8 +180,8 @@ def _authorize(env_id: str, public_key: str) -> None:
     )
 
 
-def _entry(env_id: str, user: str, today: date) -> str:
-    alias = own_host(env_id)
+def _entry(env_id: str, user: str, today: date, name: str = "") -> str:
+    alias = own_host(env_id, name)
     return (
         f"Host {alias}\n"
         "  HostName localhost\n"
@@ -188,6 +192,7 @@ def _entry(env_id: str, user: str, today: date) -> str:
         f"  HostKeyAlias {alias}\n"
         f"  ProxyJump {ssh.host(env_id)}\n"
         "  StrictHostKeyChecking accept-new\n"
+        f"  # env {env_id}\n"
         f"  # last used {today.isoformat()}\n"
     )
 
@@ -204,8 +209,14 @@ def _last_used(block: str) -> date:
     return date.fromisoformat(found.group(1)) if found else date.min
 
 
-def _write_config(env_id: str, user: str, live_ids: set[str]) -> None:
-    """Record how to reach `env_id` in oo's config file.
+def _env_id(alias: str, block: str) -> str:
+    """The environment a Host block reaches. Blocks from before names went by their ID."""
+    found = re.search(r"^  # env (\S+)$", block, flags=re.MULTILINE)
+    return found.group(1) if found else alias.removesuffix(HOST_SUFFIX)
+
+
+def _write_config(env_id: str, user: str, live_ids: set[str], name: str = "") -> None:
+    """Record how to reach `env_id` in oo's config file, replacing any older host for it.
 
     Forgets environments that are gone, and hosts not used in the last STALE_DAYS days.
     """
@@ -217,9 +228,9 @@ def _write_config(env_id: str, user: str, live_ids: set[str]) -> None:
     kept = {
         alias: block
         for alias, block in kept.items()
-        if alias.removesuffix(HOST_SUFFIX) in live_ids and _last_used(block) >= cutoff
+        if _env_id(alias, block) in live_ids - {env_id} and _last_used(block) >= cutoff
     }
-    kept[own_host(env_id)] = _entry(env_id, user, today)
+    kept[own_host(env_id, name)] = _entry(env_id, user, today, name)
     path.write_text("\n".join(kept.values()))
 
 
@@ -269,12 +280,32 @@ def ssh_configs_path() -> Path:
     return base / "Claude" / "ssh_configs.json"
 
 
-def _env_id(host: Any) -> str | None:
-    """The environment an app connection goes to, or None if it isn't to one."""
-    if isinstance(host, str):
-        for suffix in APP_HOST_SUFFIXES:
-            if host.endswith(suffix) and len(host) > len(suffix):
-                return host.removesuffix(suffix)
+def _own_hosts() -> dict[str, str]:
+    """The environment each of oo's own hosts reaches, from oo's config file."""
+    path = _ssh_dir() / "oo" / "config"
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        return {}
+    except OSError as e:
+        raise ClaudeError(f"Couldn't read {path}: {e}") from e
+    return {alias: _env_id(alias, block) for alias, block in _blocks(text).items()}
+
+
+def _app_env_id(host: Any, own_hosts: dict[str, str]) -> str | None:
+    """The environment an app connection goes to, or None if it isn't to one.
+
+    oo's own hosts are named after environments, so oo's config says which one each reaches.
+    One it no longer lists goes by what comes before the suffix: the environment's name, or its
+    ID for hosts from before names.
+    """
+    if not isinstance(host, str):
+        return None
+    if host in own_hosts:
+        return own_hosts[host]
+    for suffix in APP_HOST_SUFFIXES:
+        if host.endswith(suffix) and len(host) > len(suffix):
+            return host.removesuffix(suffix)
     return None
 
 
@@ -331,19 +362,21 @@ def _write(path: Path, data: dict[str, Any]) -> None:
 def forget(
     stale: Callable[[str], bool], path: Path | None = None, *, dry_run: bool = False
 ) -> list[str]:
-    """Drop the app's connections to Ona environments where `stale(env_id)` says so.
+    """Drop the app's connections to Ona environments where `stale(env)` says so.
 
-    Leaves every other connection, and every other part of the file, as it was. Returns the
-    names of the connections it dropped, as the app shows them. With `dry_run`, only says
-    which it would drop.
+    `env` is the environment's ID, or for one of oo's hosts that oo's config no longer lists,
+    the name the host was given, so `stale` should know environments by both. Leaves every
+    other connection, and every other part of the file, as it was. Returns the names of the
+    connections it dropped, as the app shows them. With `dry_run`, only says which it would drop.
     """
     path = path or ssh_configs_path()
     data = _read(path)
     if data is None:
         return []
+    own_hosts = _own_hosts()
 
     def gone(host: Any) -> bool:
-        env_id = _env_id(host)
+        env_id = _app_env_id(host, own_hosts)
         return env_id is not None and stale(env_id)
 
     configs = data.get("configs") or []

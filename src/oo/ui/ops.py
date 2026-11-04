@@ -12,12 +12,12 @@ import shutil
 import subprocess
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from .. import claude, ona, ssh
-from ..envs import Env, sort_envs
+from ..envs import Env, name_taken, safe_name, sort_envs
 from ..ona import OnaError
 from ..projects import ChoiceError, EnvClass, Project
 
@@ -198,7 +198,23 @@ def create(
             "Ona created it, but I can't tell which environment is yours.",
             hint="It's in the list; find it by name.",
         )
+    if name and name_taken(name, before):
+        # Names double as SSH host names for the Claude app, so keep them unique, as oo new does.
+        created = rename(created, f"{name}-{created.short_id}")
     return created, took
+
+
+def rename(env: Env, name: str) -> Env:
+    """Rename `env` to `name`, and return it as it is now. Raises UiError if Ona won't."""
+    _quietly(
+        "environment",
+        "update",
+        env.id,
+        "--name",
+        name,
+        failed="Ona couldn't rename the environment.",
+    )
+    return replace(env, name=name)
 
 
 def open_editor(env_id: str, editor: str | None, on_tick: Tick = None) -> float:
@@ -252,8 +268,11 @@ def open_in_claude(env: Env, envs: list[Env], label: str) -> list[str]:
     notes = []
     if ensure_ssh(env.id):
         notes.append("Set up SSH for Ona environments with ona environment ssh-config")
+    # The app shows the host as the remote's name, so it's named after the environment when
+    # that name works as a host name and no other environment has it.
+    name = env.name if safe_name(env.name) and not name_taken(env.name, envs, but=env.id) else ""
     try:
-        host = claude.set_up_host(env.id, {e.id for e in envs})
+        host = claude.set_up_host(env.id, {e.id for e in envs}, name=name)
         notes.append(f"Wrote an SSH host for the app, {host}, to ~/.ssh/oo/config")
     except claude.ClaudeError as e:
         host = ssh.host(env.id)

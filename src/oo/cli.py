@@ -7,6 +7,7 @@ import sys
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from typing import Annotated, NoReturn
 
 import typer
@@ -14,7 +15,18 @@ from rich.console import Console
 from rich.prompt import Confirm, IntPrompt
 
 from . import __version__, claude, github, ona, render, ssh
-from .envs import PREFIX_VAR, Ambiguous, Env, NoMatch, branch_prefix, pick, sort_envs
+from .envs import (
+    MAX_NAME,
+    PREFIX_VAR,
+    Ambiguous,
+    Env,
+    NoMatch,
+    branch_prefix,
+    name_taken,
+    pick,
+    safe_name,
+    sort_envs,
+)
 from .github import BranchStatus, GitHubError, NoGh
 from .ona import OnaError
 from .projects import CLASS_VAR, PROJECT_VAR, ChoiceError, pick_class, pick_project
@@ -256,6 +268,7 @@ EPILOG = (
     "  [cyan]oo cp notes.md login:[/]        copy a file into its repo\n"
     "  [cyan]oo cp login:out.csv .[/]        …or out of it\n"
     "  [cyan]oo new login-fix[/]             create an environment named login-fix, connect\n"
+    "                               (login-fix-<end of ID> if the name is taken)\n"
     "  [cyan]oo new login-fix -t code,ssh[/] …open it in your editor, then connect\n"
     "  [cyan]oo new pr-9 -b pr-9 -t code[/]  …check out branch pr-9 first\n"
     "  [cyan]oo stop --all[/]                stop everything that's running\n"
@@ -357,7 +370,8 @@ def _forget_in_claude(stale: Callable[[str], bool], *, quiet: bool = False) -> N
 
 def _clean_claude(yes: bool) -> None:
     """Take every deleted environment out of the Claude desktop app, once you've seen which."""
-    alive = {e.id for e in _load()}
+    # A connection goes by the environment's ID, or by its name once oo has forgotten the host.
+    alive = {key for e in _load() for key in (e.id, e.name) if key}
 
     def stale(env_id: str) -> bool:
         return env_id not in alive
@@ -453,10 +467,15 @@ def _open_in_claude(env: Env, envs: list[Env], note: str = "", label: str = "") 
 
 
 def _claude_host(env: Env, envs: list[Env]) -> str:
-    """The SSH host for the Claude app: the environment's own sshd if it works, else Ona's."""
+    """The SSH host for the Claude app: the environment's own sshd if it works, else Ona's.
+
+    The app shows the host as the remote's name, so it's named after the environment when
+    that name works as a host name and no other environment has it.
+    """
+    name = env.name if safe_name(env.name) and not name_taken(env.name, envs, but=env.id) else ""
     try:
         with err.status(render.working("Setting up SSH for Claude…"), spinner_style=render.ACCENT):
-            return claude.set_up_host(env.id, {e.id for e in envs})
+            return claude.set_up_host(env.id, {e.id for e in envs}, name=name)
     except claude.ClaudeError as e:
         render.warning(err, f"{e} Opening with Ona's own SSH host instead.", detail=e.hint)
         return ssh.host(env.id)
@@ -506,8 +525,10 @@ def new(
     name: Annotated[
         str,
         typer.Argument(
-            help="Name for the environment. oo shows it when there's no branch to show, "
-            "as with jj.",
+            help="Name for the environment: letters, digits and hyphens. oo shows it when "
+            "there's no branch to show, as with jj, and the Claude app shows it for "
+            "[bold]oo claude[/]. If another environment has it, oo adds the end of the new "
+            "one's ID.",
             show_default=False,
         ),
     ],
@@ -559,6 +580,11 @@ def new(
     editor: Editor = None,
 ) -> None:
     """Create an environment, then connect to it or open it (see [bold]--then[/])."""
+    if not safe_name(name):
+        _fail(
+            f"{name!r} can't be an environment name.",
+            hint=f"Use up to {MAX_NAME} letters, digits and hyphens, like [bold]login-fix[/].",
+        )
     if branch is not None and not safe_branch(branch):
         _fail(
             f"{branch!r} can't be a branch name.",
@@ -613,6 +639,11 @@ def new(
             hint="Run [bold]oo[/] to look.",
         )
     note = f"created in {render.duration(took)}"
+    final = ""
+    if name_taken(name, envs):
+        final = _rename(created, f"{name}-{created.short_id}")
+        if final:
+            note += f" as {final}"
     if branch:
         _check_out(created, branch, note)
         note = ""
@@ -624,7 +655,8 @@ def new(
         note = ""
     if "claude" in steps:
         try:
-            _open_in_claude(created, now, note)
+            # The Claude app names its SSH host after the environment, so use its final name.
+            _open_in_claude(replace(created, name=final) if final else created, now, note)
         except claude.ClaudeError as e:
             render.warning(err, str(e), detail=e.hint)
         note = ""
@@ -690,6 +722,26 @@ def _open_in_editor(env: Env, editor: str | None, note: str = "") -> None:
         render.warning(err, str(e), detail=e.detail)
     except KeyboardInterrupt:
         _cancelled()
+
+
+def _rename(env: Env, name: str) -> str:
+    """Rename `env` to `name`, and return it. Only warns if Ona can't, returning ''."""
+    try:
+        with err.status(render.working("Renaming…"), spinner_style=render.ACCENT):
+            ona.quietly(
+                "environment",
+                "update",
+                env.id,
+                "--name",
+                name,
+                failed="Ona couldn't rename the environment.",
+            )
+    except OnaError as e:
+        render.warning(err, f"{e} It keeps the name {env.name}.", detail=e.detail)
+        return ""
+    except KeyboardInterrupt:
+        _cancelled()
+    return name
 
 
 @app.command()
@@ -806,7 +858,7 @@ def remove(branches: Branches, wait: Wait = False) -> None:
         render.success(err, f"Deleted {label}", f"in {render.duration(took)}")
     else:
         render.success(err, f"Deleting {label} in the background.")
-    deleted = {e.id for e in targets}
+    deleted = {key for e in targets for key in (e.id, e.name) if key}
     _forget_in_claude(lambda env_id: env_id in deleted, quiet=True)
 
 

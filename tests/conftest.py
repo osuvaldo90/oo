@@ -54,4 +54,6 @@ def ssh_configs(monkeypatch, tmp_path):
 
     path = tmp_path / "ssh_configs.json"
     monkeypatch.setattr(claude, "ssh_configs_path", lambda: path)
+    # And away from your own ~/.ssh, which forget reads to know oo's hosts.
+    monkeypatch.setattr(claude, "_ssh_dir", lambda: tmp_path / ".ssh")
     return path

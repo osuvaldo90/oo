@@ -104,6 +104,13 @@ def test_create_without_a_class_or_name(calls, envs):
     assert calls == [("environment", "create", "p-1")]
 
 
+def test_create_renames_a_taken_name_after_the_new_id(calls, envs):
+    envs.append(Env.from_json(raw_env("44444444-dddd", "sam/other", name="login-fix")))
+    created, _ = ops.create(WIDGETS, None, "login-fix", list(envs))
+    assert created.name == "login-fix-99-new"
+    assert calls[-1] == ("environment", "update", "99999999-new", "--name", "login-fix-99-new")
+
+
 def test_open_editor_starts_if_it_has_to(calls):
     ops.open_editor("a", "cursor")
     ops.open_editor("a", None)
@@ -151,7 +158,7 @@ def test_missing_ona_is_an_error(monkeypatch):
 def test_open_in_claude_falls_back_to_onas_host(calls, envs, monkeypatch):
     opened = []
 
-    def set_up_host(env_id, live_ids):
+    def set_up_host(env_id, live_ids, name=""):
         raise claude.ClaudeError("Nothing is listening on port 2222.", hint="no sshd")
 
     monkeypatch.setattr(claude, "set_up_host", set_up_host)
