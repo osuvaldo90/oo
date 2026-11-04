@@ -1,4 +1,4 @@
-"""`oo`: hop into your Ona environments by branch name."""
+"""`oo`: hop into your Ona environments by name."""
 
 from __future__ import annotations
 
@@ -13,20 +13,8 @@ import typer
 from rich.console import Console
 from rich.prompt import Confirm, IntPrompt
 
-from . import __version__, claude, github, ona, render, ssh
-from .envs import (
-    MAX_NAME,
-    PREFIX_VAR,
-    Ambiguous,
-    Env,
-    NoMatch,
-    branch_prefix,
-    name_taken,
-    pick,
-    safe_name,
-    sort_envs,
-)
-from .github import BranchStatus, GitHubError, NoGh
+from . import __version__, claude, ona, render, ssh
+from .envs import MAX_NAME, Ambiguous, Env, NoMatch, name_taken, pick, safe_name, sort_envs
 from .ona import OnaError
 from .projects import CLASS_VAR, PROJECT_VAR, ChoiceError, pick_class, pick_project
 
@@ -67,24 +55,10 @@ def _load() -> list[Env]:
         _cancelled()
 
 
-def _github(envs: list[Env]) -> dict[str, BranchStatus] | None:
-    """What GitHub says about each branch, or None if we can't ask."""
-    try:
-        with err.status(render.working("Asking GitHub…"), spinner_style=render.ACCENT):
-            return github.lookup(envs)
-    except NoGh:
-        return None
-    except GitHubError as e:
-        render.warning(err, "Couldn't get pull requests from GitHub.", detail=str(e))
-        return None
-    except KeyboardInterrupt:
-        _cancelled()
-
-
 def _ask_which(envs: list[Env]) -> Env:
     """Show `envs` numbered and have the person at the terminal pick one."""
     err.print()
-    err.print(render.env_table(envs, branch_prefix(), width=err.width, numbered=True))
+    err.print(render.env_table(envs, width=err.width, numbered=True))
     err.print()
     try:
         choice = IntPrompt.ask(
@@ -100,13 +74,12 @@ def _ask_which(envs: list[Env]) -> Env:
 
 def _find(envs: list[Env], query: str) -> Env:
     """The environment `query` names, asking which one if it names several."""
-    prefix = branch_prefix()
     try:
-        return pick(envs, query, prefix)
+        return pick(envs, query)
     except NoMatch:
         if not envs:
             _fail("You don't have any environments yet.", hint=NO_ENVS_HINT)
-        close = difflib.get_close_matches(query, [e.short_branch(prefix) for e in envs], n=3)
+        close = difflib.get_close_matches(query, [e.label for e in envs], n=3)
         hint = "Run [bold]oo[/] to see your environments."
         if close:
             hint = "Did you mean " + " or ".join(f"[bold]{name}[/]" for name in close) + "?"
@@ -118,9 +91,9 @@ def _find(envs: list[Env], query: str) -> Env:
             return _ask_which(e.candidates)
         render.error(err, message)
         err.print()
-        err.print(render.env_table(e.candidates, prefix, width=err.width))
+        err.print(render.env_table(e.candidates, width=err.width))
         err.print()
-        twins = len({c.short_branch(prefix) for c in e.candidates}) < len(e.candidates)
+        twins = len({c.label.lower() for c in e.candidates}) < len(e.candidates)
         err.print("  Pass one of the IDs above instead." if twins else "  Be more specific.")
         raise typer.Exit(1) from None
 
@@ -142,7 +115,7 @@ def _choose(envs: list[Env], query: str | None, verb: str) -> Env:
     if len(running) == 1:
         return running[0]
     if not _interactive():
-        _fail(f"Which environment should I {verb}?", hint="Pass its branch name.")
+        _fail(f"Which environment should I {verb}?", hint="Pass its name.")
     return _ask_which(envs)
 
 
@@ -181,34 +154,30 @@ def _start_if_stopped(env: Env) -> str:
     return f"started in {render.duration(took)}"
 
 
-def _complete_branch(incomplete: str) -> list[tuple[str, str]]:
+def _complete_name(incomplete: str) -> list[tuple[str, str]]:
     try:
         envs = sort_envs(ona.list_envs(timeout=5))
     except (OnaError, OSError):
         return []
-    prefix = branch_prefix()
-    names = [(e.short_branch(prefix), e.phase) for e in envs]
-    return [(name, phase) for name, phase in names if name.startswith(incomplete)]
+    lowered = incomplete.lower()
+    return [(e.label, e.phase) for e in envs if e.label.lower().startswith(lowered)]
 
 
-BRANCH_HELP = (
-    f"Branch name, leaving off your ${PREFIX_VAR} if you set one. "
-    "Any unique part of it, an environment name or an ID works too."
-)
-Branch = Annotated[
-    str, typer.Argument(help=BRANCH_HELP, autocompletion=_complete_branch, show_default=False)
+NAME_HELP = "Environment name. Any unique part of it, or an ID, works too."
+Name = Annotated[
+    str, typer.Argument(help=NAME_HELP, autocompletion=_complete_name, show_default=False)
 ]
-MaybeBranch = Annotated[
+MaybeName = Annotated[
     str | None,
-    typer.Argument(help=BRANCH_HELP, autocompletion=_complete_branch, show_default=False),
+    typer.Argument(help=NAME_HELP, autocompletion=_complete_name, show_default=False),
 ]
-Branches = Annotated[
+Names = Annotated[
     list[str],
-    typer.Argument(help=BRANCH_HELP, autocompletion=_complete_branch, show_default=False),
+    typer.Argument(help=NAME_HELP, autocompletion=_complete_name, show_default=False),
 ]
-MaybeBranches = Annotated[
+MaybeNames = Annotated[
     list[str] | None,
-    typer.Argument(help=BRANCH_HELP, autocompletion=_complete_branch, show_default=False),
+    typer.Argument(help=NAME_HELP, autocompletion=_complete_name, show_default=False),
 ]
 Wait = Annotated[bool, typer.Option("--wait", "-w", help="Wait for ona to finish.")]
 
@@ -222,7 +191,7 @@ def _version(value: bool) -> None:
 EPILOG = (
     "[bold]Examples[/]\n\n"
     "  [cyan]oo[/]                           list your environments\n"
-    "  [cyan]oo c login-fix[/]               SSH into the one on adam/login-fix\n"
+    "  [cyan]oo c login-fix[/]               SSH into the one named login-fix\n"
     "  [cyan]oo c[/]                         …the only running one, or pick from a list\n"
     "  [cyan]oo c login -- git status[/]     run a command instead of a shell\n"
     "  [cyan]oo open login -e cursor[/]      open it in Cursor\n"
@@ -233,13 +202,7 @@ EPILOG = (
     "                               (login-fix-<end of ID> if the name is taken)\n"
     "  [cyan]oo stop --all[/]                stop everything that's running\n"
     "  [cyan]ona env logs $(oo id login)[/]  hand an ID to any other ona command\n\n"
-    "[bold]Branch prefix[/]\n\n"
-    "If you always start your branch names the same way, like [dim]adam/[/]login-fix, tell oo "
-    f"by setting [bold]${PREFIX_VAR}[/], ideally in your shell profile:\n\n"
-    f"  [cyan]export {PREFIX_VAR}=adam/[/]\n\n"
-    "Then you can leave the prefix off whenever you name a branch, as in [cyan]oo c login-fix[/], "
-    "and lists dim it so the part you'd type stands out. With or without a prefix, any unique "
-    "part of a branch name works too, like [cyan]oo c login[/]."
+    "Any unique part of a name works too, like [cyan]oo c login[/]."
 )
 
 
@@ -251,7 +214,7 @@ def root(
         typer.Option("--version", "-V", callback=_version, is_eager=True, help="Show version."),
     ] = None,
 ) -> None:
-    """Hop into your [bold]Ona[/] environments by branch name.
+    """Hop into your [bold]Ona[/] environments by name.
 
     With no command, lists your environments.
     """
@@ -261,17 +224,17 @@ def root(
 
 @app.command("ls")
 def ls() -> None:
-    """List your environments, running ones first, with their pull requests."""
+    """List your environments, running ones first."""
     envs = _load()
     if not envs:
         render.error(err, "You don't have any environments yet.", hint=NO_ENVS_HINT)
         return
-    render.listing(out, envs, branch_prefix(), _github(envs))
+    render.listing(out, envs)
 
 
 @app.command("c")
 def connect(
-    branch: MaybeBranch = None,
+    name: MaybeName = None,
     command: Annotated[
         list[str] | None,
         typer.Argument(
@@ -280,14 +243,14 @@ def connect(
     ] = None,
 ) -> None:
     """SSH into an environment, starting it first if it's stopped."""
-    env = _choose(_load(), branch, "connect to")
-    render.heading(err, "Connecting to", env, branch_prefix(), _start_if_stopped(env))
+    env = _choose(_load(), name, "connect to")
+    render.heading(err, "Connecting to", env, _start_if_stopped(env))
     ona.replace_with("environment", "ssh", env.id, *(["--", *command] if command else []))
 
 
 @app.command("open")
 def open_(
-    branch: MaybeBranch = None,
+    name: MaybeName = None,
     editor: Annotated[
         str | None,
         typer.Option(
@@ -301,9 +264,9 @@ def open_(
     ] = None,
 ) -> None:
     """Open an environment in your editor, starting it first if it's stopped."""
-    env = _choose(_load(), branch, "open")
+    env = _choose(_load(), name, "open")
     notes = [_start_if_stopped(env), f"in {editor}" if editor else ""]
-    render.heading(err, "Opening", env, branch_prefix(), ", ".join(n for n in notes if n))
+    render.heading(err, "Opening", env, ", ".join(n for n in notes if n))
     ona.replace_with(
         "environment", "open", env.id, "--start", *(["--editor", editor] if editor else [])
     )
@@ -379,7 +342,7 @@ def _clean_claude(yes: bool) -> None:
 
 @app.command("claude")
 def claude_(
-    branch: MaybeBranch = None,
+    name: MaybeName = None,
     clean: Annotated[
         bool,
         typer.Option(
@@ -392,7 +355,7 @@ def claude_(
         typer.Option(
             "--label",
             help="What to call the connection in the app's SSH picker. Without it, an unnamed "
-            "one is named after the branch, and one you've named keeps its name.",
+            "one is named after the environment, and one you've named keeps its name.",
             show_default=False,
         ),
     ] = None,
@@ -402,8 +365,8 @@ def claude_(
 ) -> None:
     """Open a Claude Code session on an environment in the Claude desktop app, over SSH."""
     if clean:
-        if branch or label:
-            _fail("--clean tidies up every deleted environment, so it takes no branch or label.")
+        if name or label:
+            _fail("--clean tidies up every deleted environment, so it takes no name or label.")
         _clean_claude(yes)
         return
     if yes:
@@ -413,14 +376,14 @@ def claude_(
     except claude.ClaudeError as e:
         _fail(str(e), hint=e.hint)
     envs = _load()
-    env = _choose(envs, branch, "open in Claude")
+    env = _choose(envs, name, "open in Claude")
     _set_up_ssh(env)
     note = _start_if_stopped(env)
     host = _claude_host(env, envs)
-    render.heading(err, "Opening in Claude", env, branch_prefix(), note)
+    render.heading(err, "Opening in Claude", env, note)
     label = (label or "").strip()
     try:
-        named = label or env.short_branch(branch_prefix())
+        named = label or env.label
         if called := claude.name_connection(host, named, rename=bool(label)):
             render.success(err, f"Shows as {called} in the app's SSH connections")
     except claude.ClaudeError as e:
@@ -452,7 +415,7 @@ def copy(
         list[str],
         typer.Argument(
             help="Where to copy from, then where to. Write paths in an environment as "
-            "[bold]branch:path[/], or [bold]:path[/] for the only running one. Relative ones "
+            "[bold]name:path[/], or [bold]:path[/] for the only running one. Relative ones "
             "start in the repo.",
             show_default=False,
         ),
@@ -472,13 +435,13 @@ def copy(
 
     verb = "copy to" if dest.remote else "copy from"
     envs = _load()
-    chosen = {branch: _choose(envs, branch or None, verb) for branch in {s.branch for s in remotes}}
+    chosen = {name: _choose(envs, name or None, verb) for name in {s.name for s in remotes}}
     if len({e.id for e in chosen.values()}) > 1:
         _fail("Those are in more than one environment.", hint="Copy from one at a time.")
     env = next(iter(chosen.values()))
     _set_up_ssh(env)
     note = _start_if_stopped(env)
-    render.heading(err, "Copying to" if dest.remote else "Copying from", env, branch_prefix(), note)
+    render.heading(err, "Copying to" if dest.remote else "Copying from", env, note)
     where = ssh.host(env.id)
     args = [f"{where}:{s.resolved(env.checkout)}" if s.remote else s.path for s in spots]
     # -O: Ona's SFTP server writes files as root, so they'd be stuck read-only in your shell.
@@ -488,15 +451,14 @@ def copy(
 @app.command()
 def new(
     name: Annotated[
-        str | None,
+        str,
         typer.Argument(
-            help="Name for the environment: letters, digits and hyphens. oo shows it when "
-            "there's no branch to show, as with jj, and the Claude app shows it for "
-            "[bold]oo claude[/]. If another environment has it, oo adds the end of the new "
-            "one's ID.",
+            help="Name for the environment: letters, digits and hyphens. oo and the Claude "
+            "app call it by this name. If another environment has it, oo adds the end of the "
+            "new one's ID.",
             show_default=False,
         ),
-    ] = None,
+    ],
     project: Annotated[
         str | None,
         typer.Option(
@@ -521,7 +483,7 @@ def new(
     ] = None,
 ) -> None:
     """Create an environment and connect to it."""
-    if name is not None and not safe_name(name):
+    if not safe_name(name):
         _fail(
             f"{name!r} can't be an environment name.",
             hint=f"Use up to {MAX_NAME} letters, digits and hyphens, like [bold]login-fix[/].",
@@ -553,7 +515,8 @@ def new(
         "create",
         chosen.id,
         *(["--class-id", where.id] if where else []),
-        *(["--name", name] if name else []),
+        "--name",
+        name,
         failed="Ona couldn't create the environment.",
         cancelled="Ona may still finish creating it. Run oo to check.",
     )
@@ -567,11 +530,11 @@ def new(
             hint="Run [bold]oo[/] to look.",
         )
     note = f"created in {render.duration(took)}"
-    if name and name_taken(name, envs):
+    if name_taken(name, envs):
         final = _rename(created, f"{name}-{created.short_id}")
         if final:
             note += f" as {final}"
-    render.heading(err, "Connecting to", created, branch_prefix(), note)
+    render.heading(err, "Connecting to", created, note)
     ona.replace_with("environment", "ssh", created.id)
 
 
@@ -596,13 +559,12 @@ def _rename(env: Env, name: str) -> str:
 
 
 @app.command()
-def start(branches: Branches, wait: Wait = False) -> None:
+def start(names: Names, wait: Wait = False) -> None:
     """Start environments without connecting, to warm them up."""
-    prefix = branch_prefix()
     targets = []
-    for env in _find_all(_load(), branches):
+    for env in _find_all(_load(), names):
         if env.phase in ACTIVE:
-            render.heading(err, "Skipping", env, prefix, f"already {env.phase}")
+            render.heading(err, "Skipping", env, f"already {env.phase}")
         else:
             targets.append(env)
     if not targets:
@@ -624,23 +586,22 @@ def start(branches: Branches, wait: Wait = False) -> None:
 
 @app.command()
 def stop(
-    branches: MaybeBranches = None,
+    names: MaybeNames = None,
     everything: Annotated[
         bool, typer.Option("--all", "-a", help="Stop every running one.")
     ] = False,
     wait: Wait = False,
 ) -> None:
-    """Stop environments. With no branch, stops the only running one."""
-    prefix = branch_prefix()
+    """Stop environments. With no name, stops the only running one."""
     envs = _load()
     running = [e for e in envs if e.phase in ACTIVE]
-    if branches:
+    if names:
         targets = []
-        for env in _find_all(envs, branches):
+        for env in _find_all(envs, names):
             if env.phase in ACTIVE:
                 targets.append(env)
             else:
-                render.heading(err, "Skipping", env, prefix, f"already {env.phase}")
+                render.heading(err, "Skipping", env, f"already {env.phase}")
         if not targets:
             return
     elif everything or len(running) <= 1:
@@ -689,9 +650,9 @@ def _until_gone(envs: list[Env], doing: str, elapsed: float) -> float:
 
 
 @app.command("rm")
-def remove(branches: Branches, wait: Wait = False) -> None:
+def remove(names: Names, wait: Wait = False) -> None:
     """Delete environments. Ona finishes the job in the background."""
-    targets = _find_all(_load(), branches)
+    targets = _find_all(_load(), names)
     label = render.names(targets)
     doing = f"Deleting {label}…"
     took, _ = _quietly(
@@ -714,9 +675,9 @@ def remove(branches: Branches, wait: Wait = False) -> None:
 
 
 @app.command("id")
-def id_(branch: Branch) -> None:
+def id_(name: Name) -> None:
     """Print an environment's ID, to hand to other ona commands."""
-    print(_find(_load(), branch).id)
+    print(_find(_load(), name).id)
 
 
 # Longhand spellings, for muscle memory from ona and friends.

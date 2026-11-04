@@ -6,16 +6,15 @@ import pytest
 from conftest import raw_env
 from typer.testing import CliRunner
 
-from oo import claude, cli, github, ona, ssh
+from oo import claude, cli, ona, ssh
 from oo.envs import Env
-from oo.github import BranchStatus, GitHubError, PullRequest
 from oo.ona import OnaError
 from oo.projects import EnvClass, Project
 
 RAW = [
-    raw_env("11111111-aaaa", "sam/feat-10", "running", created="2026-09-20T00:00:00Z"),
-    raw_env("22222222-bbbb", "sam/feat-10-2", changed=["src/a.py"]),
-    raw_env("33333333-cccc", "sam/docs"),
+    raw_env("11111111-aaaa", "feat-10", "running", created="2026-09-20T00:00:00Z"),
+    raw_env("22222222-bbbb", "feat-10-2", changed=["src/a.py"], branch="sam/fix-it"),
+    raw_env("33333333-cccc", "docs"),
 ]
 FRANKFURT = EnvClass(id="c-fr", name="m7i.xlarge", runner="Frankfurt")
 TOKYO = EnvClass(id="c-tk", name="m7i.xlarge", runner="Tokyo")
@@ -33,7 +32,7 @@ def envs() -> list[Env]:
 
 @pytest.fixture
 def calls(monkeypatch, envs):
-    """Fake ona and GitHub: canned answers, and a record of what we asked ona to do."""
+    """Fake ona: canned answers, and a record of what we asked ona to do."""
     record: list[tuple[str, ...]] = []
 
     def replace_with(*args):
@@ -43,7 +42,8 @@ def calls(monkeypatch, envs):
     def quietly(*args, failed, on_tick=None):
         record.append(args)
         if args[:2] == ("environment", "create"):
-            envs.append(Env.from_json(raw_env("99999999-new", "main", "running")))
+            name = args[args.index("--name") + 1]
+            envs.append(Env.from_json(raw_env("99999999-new", name, "running")))
             return 3.0, "99999999-new\n"
         return 3.0, ""
 
@@ -52,13 +52,11 @@ def calls(monkeypatch, envs):
     monkeypatch.setattr(ona, "list_classes", lambda: [TOKYO, FRANKFURT])
     monkeypatch.setattr(ona, "replace_with", replace_with)
     monkeypatch.setattr(ona, "quietly", quietly)
-    monkeypatch.setattr(github, "lookup", lambda envs: {})
     monkeypatch.setattr(ssh, "configured", lambda env_id: True)
     monkeypatch.setattr(ssh, "replace_with_scp", lambda *args: replace_with("scp", *args))
     monkeypatch.setattr(claude, "check_installed", lambda: None)
     monkeypatch.setattr(claude, "set_up_host", lambda env_id, live_ids, name="": ssh.host(env_id))
     monkeypatch.setattr(claude, "open_link", lambda url: record.append(("open", url)))
-    monkeypatch.setenv("OO_BRANCH_PREFIX", "sam")
     return record
 
 
@@ -74,30 +72,21 @@ def test_lists_by_default(calls):
     assert calls == []
 
 
-def test_lists_pull_requests_and_unpushed_work(calls, monkeypatch):
-    pr = PullRequest(number=42, state="merged", url="https://github.com/acme/widgets/pull/42")
-    statuses = {
-        "11111111-aaaa": BranchStatus(pr=pr, pushed=True),
-        "22222222-bbbb": BranchStatus(pr=None, pushed=False),
-    }
-    monkeypatch.setattr(github, "lookup", lambda envs: statuses)
+def test_lists_names_never_branches(calls):
     result = oo()
-    assert "#42 merged" in result.output
-    assert "1 uncommitted, unpushed" in result.output
+    assert "Name" in result.output
+    assert "sam/fix-it" not in result.output
+    assert "main" not in result.output
 
 
-def test_lists_anyway_when_github_fails(calls, monkeypatch):
-    def broken(envs):
-        raise GitHubError("Bad credentials")
-
-    monkeypatch.setattr(github, "lookup", broken)
-    result = oo()
-    assert result.exit_code == 0
-    assert "Bad credentials" in result.output
-    assert "feat-10-2" in result.output
+def test_branches_dont_name_environments(calls):
+    result = oo("c", "sam/fix-it")
+    assert result.exit_code == 1
+    assert 'No environment matches "sam/fix-it"' in result.output
+    assert calls == []
 
 
-def test_connects_by_short_branch(calls):
+def test_connects_by_name(calls):
     result = oo("c", "feat-10")
     assert isinstance(result.exception, Called)
     assert calls == [("environment", "ssh", "11111111-aaaa")]
@@ -124,12 +113,12 @@ def test_ona_failures_get_shown_nicely(calls, monkeypatch):
     monkeypatch.setattr(ona, "quietly", broken)
     result = oo("rm", "docs")
     assert result.exit_code == 1
-    assert "✗ Ona couldn't delete sam/docs." in result.output
+    assert "✗ Ona couldn't delete docs." in result.output
     assert "not_found: environment not found" in result.output
     assert "- try again" in result.output
 
 
-def test_connect_with_no_branch_picks_the_only_running_one(calls):
+def test_connect_with_no_name_picks_the_only_running_one(calls):
     oo("c")
     assert calls == [("environment", "ssh", "11111111-aaaa")]
 
@@ -142,7 +131,7 @@ def test_picks_from_a_list_when_its_not_obvious(calls, monkeypatch, envs):
     assert calls[-1] == ("environment", "ssh", "33333333-cccc")
 
 
-def test_ambiguous_branch_is_an_error(calls):
+def test_ambiguous_name_is_an_error(calls):
     result = oo("c", "feat")
     assert result.exit_code == 1
     assert "matches 2 environments" in result.output
@@ -171,7 +160,7 @@ def test_claude_uses_the_environments_own_sshd_when_it_can(calls, monkeypatch):
     monkeypatch.setattr(claude, "set_up_host", own_host)
     result = oo("claude")
     assert result.exit_code == 0
-    link = "claude://code/new?ssh_host=11111111-aaaa.claude.oo&ssh_folder=%2Fworkspaces%2Fwidgets"
+    link = "claude://code/new?ssh_host=feat-10.claude.oo&ssh_folder=%2Fworkspaces%2Fwidgets"
     assert calls == [("open", link)]
 
 
@@ -236,7 +225,7 @@ def _unnamed(path, *hosts: str) -> None:
     path.write_text(json.dumps({"configs": configs, "trustedHosts": []}))
 
 
-def test_claude_names_the_connection_after_the_branch(calls, ssh_configs):
+def test_claude_names_the_connection_after_the_environment(calls, ssh_configs):
     _unnamed(ssh_configs, "33333333-cccc.ona.environment")
     result = oo("claude", "docs")
     assert "Shows as docs in the app's SSH connections" in result.output
@@ -344,7 +333,7 @@ def test_claude_clean_says_when_theres_nothing_to_do(calls, ssh_configs):
     assert "nothing left over" in result.output
 
 
-def test_claude_clean_takes_no_branch_or_label(calls):
+def test_claude_clean_takes_no_name_or_label(calls):
     assert oo("claude", "docs", "--clean").exit_code == 1
     assert oo("claude", "--clean", "--label", "x").exit_code == 1
 
@@ -359,7 +348,7 @@ def test_start_skips_running_ones(calls):
     assert calls == [("environment", "start", "33333333-cccc", "--dont-wait")]
 
 
-def test_stop_with_no_branch_stops_the_only_running_one(calls):
+def test_stop_with_no_name_stops_the_only_running_one(calls):
     oo("stop")
     assert calls == [("environment", "stop", "11111111-aaaa", "--dont-wait")]
 
@@ -371,7 +360,7 @@ def test_stop_skips_stopped_ones(calls):
 
 
 def test_stop_with_several_running_asks_for_names(calls, envs):
-    envs[:] = [Env.from_json(raw_env(f"{i}{i}", f"sam/b{i}", "running")) for i in range(2)]
+    envs[:] = [Env.from_json(raw_env(f"{i}{i}", f"b{i}", "running")) for i in range(2)]
     assert oo("stop").exit_code == 1
     oo("stop", "--all")
     assert calls == [("environment", "stop", "00", "11", "--dont-wait")]
@@ -380,7 +369,7 @@ def test_stop_with_several_running_asks_for_names(calls, envs):
 def test_rm_deletes_without_asking(calls):
     result = oo("rm", "feat-10-2", "docs")
     assert result.exit_code == 0
-    assert "Deleting sam/feat-10-2 and sam/docs in the background." in result.output
+    assert "Deleting feat-10-2 and docs in the background." in result.output
     assert calls == [("environment", "delete", "22222222-bbbb", "33333333-cccc", "--dont-wait")]
 
 
@@ -399,8 +388,8 @@ def test_rm_still_succeeds_when_the_claude_app_file_is_broken(calls, ssh_configs
 
 
 TWINS = [
-    raw_env("01a0-0000-aaaaaa", "sam/twin", "running", created="2026-09-28T10:00:00Z"),
-    raw_env("01a0-0000-bbbbbb", "sam/twin", created="2026-09-29T10:00:00Z"),
+    raw_env("01a0-0000-aaaaaa", "twin", "running", created="2026-09-28T10:00:00Z"),
+    raw_env("01a0-0000-bbbbbb", "twin", created="2026-09-29T10:00:00Z"),
 ]
 
 
@@ -437,28 +426,29 @@ def test_vague_names_get_asked_about_too(calls, monkeypatch):
 
 
 def test_new_reuses_your_latest_project_and_class_then_connects(calls):
-    result = oo("new")
+    result = oo("new", "auth-fix")
     assert "from Widgets" in result.output
     assert "m7i.xlarge in Frankfurt" in result.output
+    assert "Connecting to auth-fix" in result.output
     assert calls == [
-        ("environment", "create", "p-1", "--class-id", "c-fr"),
+        ("environment", "create", "p-1", "--class-id", "c-fr", "--name", "auth-fix"),
         ("environment", "ssh", "99999999-new"),
     ]
 
 
-def test_new_names_the_environment(calls):
-    oo("new", "auth-fix")
-    assert calls[0] == ("environment", "create", "p-1", "--class-id", "c-fr", "--name", "auth-fix")
+def test_new_needs_a_name(calls):
+    result = oo("new")
+    assert result.exit_code == 2
+    assert "Missing argument 'name'" in result.output
+    assert calls == []
 
 
 def made_alongside_another(envs, printed: str):
     """A fake create, during which an `oo new` in another terminal makes a newer environment."""
 
     def quietly(*args, failed, on_tick=None):
-        envs.append(Env.from_json(raw_env("99999999-new", "main", created="2026-10-01T00:00:00Z")))
-        envs.append(
-            Env.from_json(raw_env("88888888-rival", "main", created="2026-10-02T00:00:00Z"))
-        )
+        envs.append(Env.from_json(raw_env("99999999-new", "x", created="2026-10-01T00:00:00Z")))
+        envs.append(Env.from_json(raw_env("88888888-rival", "y", created="2026-10-02T00:00:00Z")))
         return 3.0, printed
 
     return quietly
@@ -468,13 +458,13 @@ def test_new_connects_to_its_own_environment_when_another_is_made_alongside(
     calls, monkeypatch, envs
 ):
     monkeypatch.setattr(ona, "quietly", made_alongside_another(envs, "99999999-new\n"))
-    oo("new")
+    oo("new", "x")
     assert calls == [("environment", "ssh", "99999999-new")]
 
 
 def test_new_wont_guess_between_new_environments(calls, monkeypatch, envs):
     monkeypatch.setattr(ona, "quietly", made_alongside_another(envs, "Environment created\n"))
-    result = oo("new")
+    result = oo("new", "x")
     assert result.exit_code == 1
     assert "can't tell which environment is yours" in result.output
     assert calls == []
@@ -483,25 +473,25 @@ def test_new_wont_guess_between_new_environments(calls, monkeypatch, envs):
 def test_new_takes_project_and_class_from_the_environment(calls, monkeypatch):
     monkeypatch.setenv("OO_PROJECT", "widgets")
     monkeypatch.setenv("OO_CLASS", "tokyo")
-    oo("new")
-    assert calls[0] == ("environment", "create", "p-1", "--class-id", "c-tk")
+    oo("new", "x")
+    assert calls[0] == ("environment", "create", "p-1", "--class-id", "c-tk", "--name", "x")
 
 
 def test_new_complains_about_unknown_classes(calls):
-    result = oo("new", "--class", "mars")
+    result = oo("new", "x", "--class", "mars")
     assert result.exit_code == 1
     assert "m7i.xlarge in Tokyo, m7i.xlarge in Frankfurt" in result.output
     assert calls == []
 
 
 def test_start_and_stop_say_what_they_did(calls):
-    assert "Starting sam/docs in the background." in oo("start", "docs").output
-    assert "Stopped sam/feat-10 in 3s" in oo("stop", "feat-10", "--wait").output
+    assert "Starting docs in the background." in oo("start", "docs").output
+    assert "Stopped feat-10 in 3s" in oo("stop", "feat-10", "--wait").output
 
 
 def test_cp_copies_into_the_repo(calls):
     result = oo("cp", "notes.md", "dist", "feat-10:")
-    assert "Copying to sam/feat-10" in result.output
+    assert "Copying to feat-10" in result.output
     assert calls == [
         (
             "scp",
@@ -517,7 +507,7 @@ def test_cp_copies_into_the_repo(calls):
 
 def test_cp_copies_out_starting_stopped_ones(calls):
     result = oo("cp", "docs:out/a.csv", "docs:/tmp/b.csv", ".")
-    assert "Copying from sam/docs · started in 3s" in result.output
+    assert "Copying from docs · started in 3s" in result.output
     host = "33333333-cccc.ona.environment"
     assert calls == [
         ("environment", "start", "33333333-cccc"),
@@ -533,7 +523,7 @@ def test_cp_copies_out_starting_stopped_ones(calls):
     ]
 
 
-def test_cp_with_no_branch_uses_the_only_running_one(calls):
+def test_cp_with_no_name_uses_the_only_running_one(calls):
     oo("cp", ":~/.bashrc", "./odd:name")
     assert calls == [
         ("scp", "-O", "-r", "--", "11111111-aaaa.ona.environment:~/.bashrc", "./odd:name")
@@ -574,7 +564,7 @@ def test_rm_wait_sees_a_delete_through_when_ona_gives_up_at_the_stop(calls, monk
     monkeypatch.setattr(ona, "quietly", stops)
     result = oo("rm", "feat-10", "--wait")
     assert result.exit_code == 0
-    assert "Deleted sam/feat-10" in result.output
+    assert "Deleted feat-10" in result.output
     assert calls == [("environment", "delete", "11111111-aaaa")]
 
 
@@ -607,7 +597,7 @@ def test_claude_names_the_host_after_the_environment(calls, monkeypatch, envs):
 def test_claude_goes_by_id_when_the_name_wont_do_as_a_host(calls, monkeypatch, envs, names):
     monkeypatch.setattr(claude, "set_up_host", own_host)
     named(envs, *names)
-    oo("claude", "feat-10")
+    oo("claude")
     assert calls[0][1].startswith("claude://code/new?ssh_host=11111111-aaaa.claude.oo&")
 
 
@@ -630,7 +620,7 @@ def test_new_adds_the_end_of_the_id_when_the_name_is_taken(calls, envs):
 
 
 def test_new_doesnt_count_names_of_environments_being_deleted(calls, envs):
-    envs.append(Env.from_json(raw_env("44444444-dddd", "main", "deleting", name="auth-fix")))
+    envs.append(Env.from_json(raw_env("44444444-dddd", "auth-fix", "deleting")))
     oo("new", "auth-fix")
     assert [c[1] for c in calls] == ["create", "ssh"]
 

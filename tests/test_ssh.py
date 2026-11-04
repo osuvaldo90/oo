@@ -9,10 +9,10 @@ from oo.ssh import Spot
     ("arg", "spot"),
     [
         ("notes.md", Spot("notes.md")),
-        ("login:", Spot("", remote=True, branch="login")),
-        ("adam/login-fix:src/a.py", Spot("src/a.py", remote=True, branch="adam/login-fix")),
+        ("login:", Spot("", remote=True, name="login")),
+        ("login-fix:src/a.py", Spot("src/a.py", remote=True, name="login-fix")),
         (":out.csv", Spot("out.csv", remote=True)),
-        ("login:a:b", Spot("a:b", remote=True, branch="login")),
+        ("login:a:b", Spot("a:b", remote=True, name="login")),
         ("./odd:name", Spot("./odd:name")),
         ("/tmp/odd:name", Spot("/tmp/odd:name")),
         ("~/odd:name", Spot("~/odd:name")),

@@ -7,22 +7,24 @@ import pytest
 
 def raw_env(
     id: str,
-    branch: str,
+    name: str,
     phase: str = "stopped",
     *,
     active: str = "2026-09-30T12:00:00Z",
     created: str = "2026-09-01T00:00:00Z",
     repo: str = "https://github.com/acme/widgets.git",
-    commit: str = "a" * 40,
+    branch: str = "main",
     changed: list[str] | None = None,
-    name: str | None = None,
     project: str = "p-1",
     env_class: str = "c-fr",
     desired: str = "running",
     checkout: str = "/workspaces/widgets",
 ) -> dict[str, Any]:
-    """Just enough of `ona environment list --format json` to be realistic."""
-    git: dict[str, Any] = {"branch": branch, "cloneUrl": repo, "latestCommit": commit}
+    """Just enough of `ona environment list --format json` to be realistic.
+
+    Ona reports a branch too, which oo ignores.
+    """
+    git: dict[str, Any] = {"branch": branch, "cloneUrl": repo, "latestCommit": "a" * 40}
     if changed:
         git["changedFiles"] = [{"changeType": "CHANGE_TYPE_MODIFIED", "path": p} for p in changed]
         git["totalChangedFiles"] = len(changed)
@@ -43,7 +45,7 @@ def raw_env(
 
 @pytest.fixture(autouse=True)
 def _clean_environment(monkeypatch):
-    for var in ("OO_BRANCH_PREFIX", "OO_EDITOR", "OO_PROJECT", "OO_CLASS"):
+    for var in ("OO_EDITOR", "OO_PROJECT", "OO_CLASS"):
         monkeypatch.delenv(var, raising=False)
 
 

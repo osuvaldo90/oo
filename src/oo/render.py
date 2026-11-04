@@ -9,7 +9,6 @@ from rich.table import Table
 from rich.text import Text
 
 from .envs import Env
-from .github import BranchStatus
 from .projects import EnvClass, Project
 
 ACCENT = "#7c83f7"
@@ -17,17 +16,6 @@ ERROR = "#f2506e"
 FAINT = "grey42"
 GREEN = "#1fbf8f"
 AMBER = "#eb9a12"
-PURPLE = "#a871f7"
-
-PR_LOOKS = {
-    "draft": FAINT,
-    "open": GREEN,
-    "approved": f"bold {GREEN}",
-    "changes requested": AMBER,
-    "merged": PURPLE,
-    "closed": ERROR,
-}
-PR_LABELS = {"changes requested": "changes req."}  # keeps the table inside 80 columns
 
 PHASE_LOOKS = {
     "running": ("●", GREEN),
@@ -61,14 +49,8 @@ def created(when: datetime | None) -> str:
     return when.astimezone().strftime("%b %-d %H:%M") if when else "?"
 
 
-def branch(env: Env, prefix: str) -> Text:
-    """The branch with your prefix dimmed, so the part you'd type stands out."""
-    if not env.branch:
-        return Text(env.short_branch(prefix), style="bold")
-    short = env.short_branch(prefix)
-    if short == env.branch:
-        return Text(short, style="bold")
-    return Text.assemble((prefix, FAINT), (short, "bold"))
+def name(env: Env) -> Text:
+    return Text(env.label, style="bold")
 
 
 def phase(env: Env) -> Text:
@@ -76,44 +58,22 @@ def phase(env: Env) -> Text:
     return Text.assemble((f"{dot} ", color), (env.phase, "" if env.running else color))
 
 
-def pull_request(status: BranchStatus | None) -> Text:
-    if status is None or status.pr is None:
-        return Text()
-    pr = status.pr
-    number_style = f"link {pr.url}" if pr.url else ""
-    return Text.assemble(
-        (f"#{pr.number}", number_style),
-        " ",
-        (PR_LABELS.get(pr.state, pr.state), PR_LOOKS.get(pr.state, FAINT)),
-    )
+def changes(env: Env) -> Text:
+    return Text(f"{env.changed_count} uncommitted" if env.changed_count else "", style=AMBER)
 
 
-def changes(env: Env, status: BranchStatus | None) -> Text:
-    parts = [f"{env.changed_count} uncommitted"] if env.changed_count else []
-    if status and status.pushed is False:
-        parts.append("unpushed")
-    return Text(", ".join(parts), style=AMBER)
-
-
-def env_table(
-    envs: list[Env],
-    prefix: str,
-    *,
-    width: int | None = None,
-    numbered: bool = False,
-    github: dict[str, BranchStatus] | None = None,
-) -> Table:
-    """One row per environment, fitted to `width` by cutting the branch short if need be.
+def env_table(envs: list[Env], *, width: int | None = None, numbered: bool = False) -> Table:
+    """One row per environment, fitted to `width` by cutting the name short if need be.
 
     When the shown names repeat, rows also show the end of their ID and when they were created, to
-    tell them apart. Pass what GitHub said about each branch as `github` to get a PR column.
+    tell them apart.
     """
     show_repo = len({e.repo for e in envs}) > 1
-    twins = len({e.short_branch(prefix) for e in envs}) < len(envs)
+    twins = len({e.label.lower() for e in envs}) < len(envs)
     table = Table(box=None, pad_edge=False, padding=(0, 1), header_style=FAINT)
     if numbered:
         table.add_column("#", justify="right", style=FAINT, no_wrap=True)
-    table.add_column("Branch", no_wrap=True, overflow="ellipsis")
+    table.add_column("Name", no_wrap=True, overflow="ellipsis")
     if twins:
         table.add_column("ID", no_wrap=True)
     if show_repo:
@@ -122,15 +82,12 @@ def env_table(
     if twins:
         table.add_column("Created", no_wrap=True)
     table.add_column("Active", no_wrap=True, style=FAINT)
-    if github is not None:
-        table.add_column("PR", no_wrap=True)
     table.add_column("Changes", no_wrap=True)
 
     rows: list[list[Text]] = []
     for i, env in enumerate(envs, 1):
-        status = github.get(env.id) if github else None
         cells = [Text(str(i))] if numbered else []
-        cells.append(branch(env, prefix))
+        cells.append(name(env))
         if twins:
             cells.append(Text(env.short_id, style=ACCENT))
         if show_repo:
@@ -139,35 +96,31 @@ def env_table(
         if twins:
             cells.append(Text(created(env.created)))
         cells.append(Text(ago(env.last_active)))
-        if github is not None:
-            cells.append(pull_request(status))
-        cells.append(changes(env, status))
+        cells.append(changes(env))
         rows.append(cells)
         table.add_row(*cells)
 
     if width is not None:
         # Every other column gets what it needs, plus a gap of 2 between columns.
-        branch_index = 1 if numbered else 0
+        name_index = 1 if numbered else 0
         others = sum(
             max(len(str(column.header)), *(row[i].cell_len for row in rows))
             for i, column in enumerate(table.columns)
-            if i != branch_index
+            if i != name_index
         )
-        table.columns[branch_index].max_width = max(10, width - others - 2 * (len(rows[0]) - 1))
+        table.columns[name_index].max_width = max(10, width - others - 2 * (len(rows[0]) - 1))
     return table
 
 
-def listing(
-    console: Console, envs: list[Env], prefix: str, github: dict[str, BranchStatus] | None
-) -> None:
+def listing(console: Console, envs: list[Env]) -> None:
     console.print()
-    console.print(env_table(envs, prefix, width=console.width, github=github))
+    console.print(env_table(envs, width=console.width))
     console.print()
 
 
-def heading(console: Console, verb: str, env: Env, prefix: str, note: str = "") -> None:
-    """e.g. `→ Connecting to adam/login-fix · running`"""
-    line = Text.assemble(("→ ", ACCENT), (f"{verb} ", ACCENT), branch(env, prefix))
+def heading(console: Console, verb: str, env: Env, note: str = "") -> None:
+    """e.g. `→ Connecting to login-fix · running`"""
+    line = Text.assemble(("→ ", ACCENT), (f"{verb} ", ACCENT), name(env))
     line.append(f" · {note or env.phase}", style=FAINT)
     console.print(line)
 
@@ -188,8 +141,8 @@ def duration(seconds: float) -> str:
 
 
 def names(envs: list[Env]) -> str:
-    """e.g. `adam/a`, `adam/a and adam/b`, `adam/a, adam/b and adam/c`"""
-    named = [e.branch or e.name or e.id for e in envs]
+    """e.g. `a`, `a and b`, `a, b and c`"""
+    named = [e.label for e in envs]
     return named[0] if len(named) == 1 else ", ".join(named[:-1]) + f" and {named[-1]}"
 
 
