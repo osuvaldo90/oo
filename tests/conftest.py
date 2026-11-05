@@ -13,7 +13,6 @@ def raw_env(
     active: str = "2026-09-30T12:00:00Z",
     created: str = "2026-09-01T00:00:00Z",
     repo: str = "https://github.com/acme/widgets.git",
-    commit: str = "a" * 40,
     changed: list[str] | None = None,
     name: str | None = None,
     project: str = "p-1",
@@ -22,7 +21,7 @@ def raw_env(
     checkout: str = "/workspaces/widgets",
 ) -> dict[str, Any]:
     """Just enough of `ona environment list --format json` to be realistic."""
-    git: dict[str, Any] = {"branch": branch, "cloneUrl": repo, "latestCommit": commit}
+    git: dict[str, Any] = {"branch": branch, "cloneUrl": repo, "latestCommit": "a" * 40}
     if changed:
         git["changedFiles"] = [{"changeType": "CHANGE_TYPE_MODIFIED", "path": p} for p in changed]
         git["totalChangedFiles"] = len(changed)

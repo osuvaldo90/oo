@@ -75,7 +75,6 @@ class Env:
     last_active: datetime | None
     changes: tuple[str, ...] = ()
     changed_count: int = 0
-    commit: str = ""
     project_id: str = ""
     class_id: str = ""
     created: datetime | None = None
@@ -114,7 +113,6 @@ class Env:
             or created,
             changes=changes,
             changed_count=max(git.get("totalChangedFiles") or 0, len(changes)),
-            commit=git.get("latestCommit") or "",
             project_id=_dig(data, "metadata", "projectId") or "",
             class_id=_dig(data, "spec", "machine", "class") or "",
             created=created,

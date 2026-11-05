@@ -14,7 +14,7 @@ import typer
 from rich.console import Console
 from rich.prompt import Confirm, IntPrompt
 
-from . import __version__, claude, github, ona, render, ssh
+from . import __version__, claude, ona, render, ssh
 from .envs import (
     MAX_NAME,
     PREFIX_VAR,
@@ -27,7 +27,6 @@ from .envs import (
     safe_name,
     sort_envs,
 )
-from .github import BranchStatus, GitHubError, NoGh
 from .ona import OnaError
 from .projects import CLASS_VAR, PROJECT_VAR, ChoiceError, pick_class, pick_project
 
@@ -64,20 +63,6 @@ def _load() -> list[Env]:
             return sort_envs(ona.list_envs())
     except OnaError as e:
         _fail(str(e), detail=e.detail, hint=e.hint)
-    except KeyboardInterrupt:
-        _cancelled()
-
-
-def _github(envs: list[Env]) -> dict[str, BranchStatus] | None:
-    """What GitHub says about each branch, or None if we can't ask."""
-    try:
-        with err.status(render.working("Asking GitHub…"), spinner_style=render.ACCENT):
-            return github.lookup(envs)
-    except NoGh:
-        return None
-    except GitHubError as e:
-        render.warning(err, "Couldn't get pull requests from GitHub.", detail=str(e))
-        return None
     except KeyboardInterrupt:
         _cancelled()
 
@@ -301,12 +286,12 @@ def root(
 
 @app.command("ls")
 def ls() -> None:
-    """List your environments, running ones first, with their pull requests."""
+    """List your environments, running ones first."""
     envs = _load()
     if not envs:
         render.error(err, "You don't have any environments yet.", hint=NO_ENVS_HINT)
         return
-    render.listing(out, envs, branch_prefix(), _github(envs))
+    render.listing(out, envs, branch_prefix())
 
 
 @app.command("c")

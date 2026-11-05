@@ -6,9 +6,8 @@ import pytest
 from conftest import raw_env
 from typer.testing import CliRunner
 
-from oo import claude, cli, github, ona, ssh
+from oo import claude, cli, ona, ssh
 from oo.envs import Env
-from oo.github import BranchStatus, GitHubError, PullRequest
 from oo.ona import OnaError
 from oo.projects import EnvClass, Project
 
@@ -33,7 +32,7 @@ def envs() -> list[Env]:
 
 @pytest.fixture
 def calls(monkeypatch, envs):
-    """Fake ona and GitHub: canned answers, and a record of what we asked ona to do."""
+    """Fake ona: canned answers, and a record of what we asked ona to do."""
     record: list[tuple[str, ...]] = []
 
     def replace_with(*args):
@@ -52,7 +51,6 @@ def calls(monkeypatch, envs):
     monkeypatch.setattr(ona, "list_classes", lambda: [TOKYO, FRANKFURT])
     monkeypatch.setattr(ona, "replace_with", replace_with)
     monkeypatch.setattr(ona, "quietly", quietly)
-    monkeypatch.setattr(github, "lookup", lambda envs: {})
     monkeypatch.setattr(ssh, "configured", lambda env_id: True)
     monkeypatch.setattr(ssh, "replace_with_scp", lambda *args: replace_with("scp", *args))
     monkeypatch.setattr(claude, "check_installed", lambda: None)
@@ -72,29 +70,6 @@ def test_lists_by_default(calls):
     assert "feat-10-2" in result.output
     assert "1 uncommitted" in result.output
     assert calls == []
-
-
-def test_lists_pull_requests_and_unpushed_work(calls, monkeypatch):
-    pr = PullRequest(number=42, state="merged", url="https://github.com/acme/widgets/pull/42")
-    statuses = {
-        "11111111-aaaa": BranchStatus(pr=pr, pushed=True),
-        "22222222-bbbb": BranchStatus(pr=None, pushed=False),
-    }
-    monkeypatch.setattr(github, "lookup", lambda envs: statuses)
-    result = oo()
-    assert "#42 merged" in result.output
-    assert "1 uncommitted, unpushed" in result.output
-
-
-def test_lists_anyway_when_github_fails(calls, monkeypatch):
-    def broken(envs):
-        raise GitHubError("Bad credentials")
-
-    monkeypatch.setattr(github, "lookup", broken)
-    result = oo()
-    assert result.exit_code == 0
-    assert "Bad credentials" in result.output
-    assert "feat-10-2" in result.output
 
 
 def test_connects_by_short_branch(calls):

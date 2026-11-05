@@ -16,10 +16,10 @@
 ```console
 $ oo
 
-Branch               Status     Active   PR               Changes
-adam/login-fix       ● running  4m ago   #1234 open       unpushed
-adam/billing-export  ○ stopped  2d ago   #1198 approved   3 uncommitted
-adam/old-spike       ○ stopped  3w ago   #1102 merged
+Branch               Status     Active   Changes
+adam/login-fix       ● running  4m ago
+adam/billing-export  ○ stopped  2d ago   3 uncommitted
+adam/old-spike       ○ stopped  3w ago
 
 $ oo c login
 → Connecting to adam/login-fix · running
@@ -30,7 +30,7 @@ $ oo c login
 - **Branches, not UUIDs.** Name an environment by its branch, any unique part of it, its name or
   its ID. Leave your personal branch prefix off.
 - **One glance at everything.** The list shows what's running, when you last used each
-  environment, its pull request, and any work that isn't on GitHub yet.
+  environment, and any uncommitted work.
 - **Knows what you mean.** `oo c`, `oo code` and `oo claude` with no branch use the one running
   environment, or let you pick from a list. Typos get a "did you mean".
 - **A fresh environment in one command.** `oo new NAME` creates an environment the way you did
@@ -39,7 +39,7 @@ $ oo c login
   carries on in the background.
 - **Quiet.** ona's own output stays behind a spinner with a timer. If something goes wrong, you
   see ona's error and any fixes it suggests.
-- **Just a wrapper.** Everything goes through the `ona` and `gh` CLIs you already have set up.
+- **Just a wrapper.** Everything goes through the `ona` CLI you already have set up.
   oo has no config file of its own. The one exception is `oo claude`, which writes SSH host
   entries; see [docs/claude-desktop.md](docs/claude-desktop.md) for what it changes and how to
   undo it.
@@ -47,8 +47,6 @@ $ oo c login
 ## Install
 
 You'll need [uv](https://docs.astral.sh/uv/) and the [Ona CLI](https://ona.com/docs), logged in.
-The [GitHub CLI](https://cli.github.com) is optional; with it, the list shows each branch's pull
-request.
 
 ```sh
 uv tool install git+https://github.com/adamtrain/oo
@@ -140,8 +138,7 @@ Copies go one way at a time, between your machine and one environment.
 | **Name** | Only when an environment on a branch has a name, like one made with `oo new -n`. An environment with no branch shows its name under Branch instead. |
 | **ID**, **Created** | Only when two environments share a branch: the end of each one's ID, and when it was created. |
 | **Active** | When Ona last saw activity in the environment. |
-| **PR** | The newest pull request from the branch: draft, open, approved, changes req., merged or closed. The number links to it. |
-| **Changes** | Uncommitted files, and `unpushed` when the environment's latest commit isn't on GitHub. |
+| **Changes** | Uncommitted files. |
 
 Ona updates git details while an environment runs, so a stopped environment shows how things
 were when it stopped.
@@ -228,11 +225,6 @@ hidden behind a spinner, and if one fails, it shows the `Error:` and "Possible r
 printed. `oo c` and `oo code` start a stopped environment that way first, then replace themselves
 with the ona process, so SSH gets your terminal to itself.
 
-Pull requests and push status come from a single GitHub GraphQL query per repository, made
-through `gh api`. It asks for each branch's newest pull request and whether each environment's
-latest commit exists on GitHub. If `gh` isn't installed, oo skips that column. If the query
-fails, oo says so and lists everything else.
-
 `oo cp` hands the copy to `scp`, using the `<id>.ona.environment` host names that
 `ona environment ssh-config` sets up. It uses scp's original protocol (`-O`) rather than SFTP,
 because Ona's SFTP server would leave the files owned by root. If ssh doesn't know those names yet, oo runs
@@ -270,7 +262,7 @@ uv run ruff check . && uv run ruff format .
 uv run ty check                 # type-check
 ```
 
-The tests fake both CLIs, so they run without Ona or GitHub.
+The tests fake the ona CLI, so they run without Ona.
 
 ```
 src/oo/
@@ -278,7 +270,6 @@ src/oo/
 ├── envs.py      # environments, and finding one from what you typed
 ├── projects.py  # choosing a project and environment class for `oo new`
 ├── ona.py       # runs the ona CLI
-├── github.py    # asks GitHub about branches through gh
 ├── ssh.py       # copies files with scp, for `oo cp`
 ├── claude.py    # hands an environment to the Claude desktop app, for `oo claude`
 ├── render.py    # everything you see

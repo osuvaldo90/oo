@@ -9,7 +9,6 @@ from rich.table import Table
 from rich.text import Text
 
 from .envs import Env
-from .github import BranchStatus
 from .projects import EnvClass, Project
 
 ACCENT = "#7c83f7"
@@ -17,17 +16,6 @@ ERROR = "#f2506e"
 FAINT = "grey42"
 GREEN = "#1fbf8f"
 AMBER = "#eb9a12"
-PURPLE = "#a871f7"
-
-PR_LOOKS = {
-    "draft": FAINT,
-    "open": GREEN,
-    "approved": f"bold {GREEN}",
-    "changes requested": AMBER,
-    "merged": PURPLE,
-    "closed": ERROR,
-}
-PR_LABELS = {"changes requested": "changes req."}  # keeps the table inside 80 columns
 
 PHASE_LOOKS = {
     "running": ("●", GREEN),
@@ -76,23 +64,8 @@ def phase(env: Env) -> Text:
     return Text.assemble((f"{dot} ", color), (env.phase, "" if env.running else color))
 
 
-def pull_request(status: BranchStatus | None) -> Text:
-    if status is None or status.pr is None:
-        return Text()
-    pr = status.pr
-    number_style = f"link {pr.url}" if pr.url else ""
-    return Text.assemble(
-        (f"#{pr.number}", number_style),
-        " ",
-        (PR_LABELS.get(pr.state, pr.state), PR_LOOKS.get(pr.state, FAINT)),
-    )
-
-
-def changes(env: Env, status: BranchStatus | None) -> Text:
-    parts = [f"{env.changed_count} uncommitted"] if env.changed_count else []
-    if status and status.pushed is False:
-        parts.append("unpushed")
-    return Text(", ".join(parts), style=AMBER)
+def changes(env: Env) -> Text:
+    return Text(f"{env.changed_count} uncommitted" if env.changed_count else "", style=AMBER)
 
 
 def env_table(
@@ -101,14 +74,13 @@ def env_table(
     *,
     width: int | None = None,
     numbered: bool = False,
-    github: dict[str, BranchStatus] | None = None,
     names: bool = True,
 ) -> Table:
     """One row per environment, fitted to `width` by cutting the branch and name short if need be.
 
     Environments on a branch get a Name column if any has a name, unless `width` has no room for
     it. When the shown names repeat, rows also show the end of their ID and when they were created,
-    to tell them apart. Pass what GitHub said about each branch as `github` to get a PR column.
+    to tell them apart.
     """
     show_repo = len({e.repo for e in envs}) > 1
     # An environment without a branch already shows its name in the Branch column.
@@ -128,13 +100,10 @@ def env_table(
     if twins:
         table.add_column("Created", no_wrap=True)
     table.add_column("Active", no_wrap=True, style=FAINT)
-    if github is not None:
-        table.add_column("PR", no_wrap=True)
     table.add_column("Changes", no_wrap=True)
 
     rows: list[list[Text]] = []
     for i, env in enumerate(envs, 1):
-        status = github.get(env.id) if github else None
         cells = [Text(str(i))] if numbered else []
         cells.append(branch(env, prefix))
         if show_name:
@@ -147,9 +116,7 @@ def env_table(
         if twins:
             cells.append(Text(created(env.created)))
         cells.append(Text(ago(env.last_active)))
-        if github is not None:
-            cells.append(pull_request(status))
-        cells.append(changes(env, status))
+        cells.append(changes(env))
         rows.append(cells)
         table.add_row(*cells)
 
@@ -167,9 +134,7 @@ def env_table(
             # The branch keeps at least 10 and the name at least 6, or the name goes. Past that, the
             # name grows to fit while the branch keeps 20, which shows most of a branch.
             if room < 10 + 6:
-                return env_table(
-                    envs, prefix, width=width, numbered=numbered, github=github, names=False
-                )
+                return env_table(envs, prefix, width=width, numbered=numbered, names=False)
             keep = min(needs[branch_index], 20)
             name_width = min(needs[name_index], max(6, room - keep))
             table.columns[name_index].max_width = name_width
@@ -178,11 +143,9 @@ def env_table(
     return table
 
 
-def listing(
-    console: Console, envs: list[Env], prefix: str, github: dict[str, BranchStatus] | None
-) -> None:
+def listing(console: Console, envs: list[Env], prefix: str) -> None:
     console.print()
-    console.print(env_table(envs, prefix, width=console.width, github=github))
+    console.print(env_table(envs, prefix, width=console.width))
     console.print()
 
 
