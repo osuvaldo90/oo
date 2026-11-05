@@ -85,10 +85,10 @@ oo cp notes.md dist login:    # copy files and folders into the repo on adam/log
 oo cp login:out/report.csv .  # …or out of it
 oo new                        # create an environment and SSH into it
 oo new -n login-fix           # …named login-fix, so oo c login-fix finds it
-oo new -b pr-9                # …check out branch pr-9, then SSH into it
 oo new -t code,ssh            # …open it in your editor, then SSH into it
 oo new -t claude              # …open it in the Claude desktop app instead
 oo new -t none                # …just create it
+oo new -b pr-9 -t code        # …check out branch pr-9, then open your editor
 oo start login billing        # warm some up in the background
 oo stop                       # stop the only running one (--all for every one)
 oo rm old-spike               # delete one
@@ -162,14 +162,65 @@ time. To choose, use the options or set them in your shell profile:
 Class words prefer the classes the project offers, the same choices as Ona's region picker. Once
 Ona has started the environment, oo connects to it. It starts on the project's default branch.
 
+### Keeping the list open
+
+`oo ui` keeps the list on screen all day and acts on it with one key each. It needs oo's `ui`
+extra, which brings in [Textual](https://textual.textualize.io):
+
+```sh
+uv tool install 'oo[ui] @ git+https://github.com/adamtrain/oo'   # or, from a checkout:
+uv tool install --editable '.[ui]'
+```
+
+```console
+$ oo ui
+
+ oo  ·  8 environments, 2 running  ·  refreshed 4s ago  ·  ⏎ opens ssh in a new tmux window
+   Branch               Status                 Active     Changes
+ ▸ adam/login-fix       ● running              4m ago
+   adam/billing-export  ◐ starting · 12s       2d ago     3 uncommitted
+ ✓ adam/old-spike       ○ stopped              3w ago     1 uncommitted
+   adam/scratch         ✕ deleting · 3s        1w ago
+ ──────────────────────────────────────────────────────────────────────────────────────
+   login-fix  ·  https://github.com/acme/widgets.git  ·  created Nov 2 10:14  ·  id …0ffee1
+   no uncommitted changes
+ ──────────────────────────────────────────────────────────────────────────────────────
+ ✓ Stopping adam/old-spike  1 uncommitted file stays on disk
+ ⏎ ssh  o code  a claude  n new  s start  D delete  ␣ mark  i info  L log  / filter  ? help  q quit
+```
+
+| Key | |
+| --- | --- |
+| `⏎` `c` | SSH into the environment. A stopped one is started first, and you're asked before the session opens. `C` always opens it here. |
+| `o` `O` | Open it in your editor (`$OO_EDITOR`, else Ona's default), or in one you pick. |
+| `a` | Open a Claude Code session on it in the Claude desktop app. The first time on a machine, oo shows what it sets up and asks. |
+| `n` | Create an environment: name, project and class default as for `oo new`, then connect to it, open it, or just leave it. |
+| `s` `x` | Start, stop. Ona carries on in the background; the list shows `starting` or `stopping` right away. |
+| `D` | Delete, after confirming. Stopped and clean environments take a `y`. One that's running or has uncommitted changes wants its name typed; a batch with one wants the word `delete`. |
+| `␣` `*` | Mark the row, or every row shown. `s`, `x` and `D` then act on all marked rows in one `ona` call. |
+| `/` | Filter rows by any part of a name, as `oo c` takes it, or by a phase like `stopped`. |
+| `i` `L` `y` | Toggle the details pane, toggle the activity log, copy the environment's ID. |
+| `!` | Run `ona login` here when Ona says your session expired. |
+
+The list refreshes every 15 seconds, every 3 while something is starting, stopping or being
+created, and every minute while the terminal is in the background. Nothing takes over the
+terminal without a keypress, and an environment with work in flight refuses a second one.
+
+Where SSH sessions open depends on the terminal `oo ui` runs in. In cmux, a session becomes a
+cmux workspace mirroring a tmux session on the environment. In tmux, it opens in a new window.
+In iTerm2, WezTerm, kitty and Terminal.app, it opens in a new tab or window. Anywhere else,
+`oo ui` steps aside, runs ssh in its own terminal, and comes back when the session ends. Set
+`OO_CONNECT` to `here`, `cmux`, `tmux` or `tab` to pick one instead of `auto`.
+
 ## Settings
 
 | Variable | |
 | --- | --- |
 | `OO_BRANCH_PREFIX` | Your branch prefix, e.g. `adam/`. Dimmed in the list and optional when typing. |
-| `OO_EDITOR` | Default editor for `oo code` and `oo new -t code`: an alias from `ona environment list-editors`, like `cursor` |
+| `OO_EDITOR` | Default editor for `oo code`, `oo new -t code` and `o` in `oo ui`: an alias from `ona environment list-editors`, like `cursor` |
 | `OO_PROJECT` | Default project for `oo new` |
 | `OO_CLASS` | Default environment class for `oo new` |
+| `OO_CONNECT` | Where `oo ui` opens SSH sessions: `auto` (the default), `here`, `cmux`, `tmux` or `tab` |
 
 ## How it works
 
@@ -209,8 +260,8 @@ app's `ssh_configs.json`, and only touch connections to environments (`*.claude.
 them. If the app is open, quit and reopen it to see the list update.
 
 `oo new` notes which environments exist, runs `ona environment create`, and connects to the one
-that wasn't there before. With `-b BRANCH`, it first runs `ona environment exec` to fetch that
-branch and `git switch` to it. If that fails, oo warns and carries on.
+that wasn't there before. With `-b BRANCH`, it then runs `ona environment exec` to fetch that
+branch and `git switch` to it before the `--then` steps. If that fails, oo warns and carries on.
 
 ## Development
 
@@ -232,7 +283,9 @@ src/oo/
 ├── github.py    # asks GitHub about branches through gh
 ├── ssh.py       # copies files with scp, for `oo cp`
 ├── claude.py    # hands an environment to the Claude desktop app, for `oo claude`
-└── render.py    # everything you see
+├── render.py    # everything you see
+└── ui/          # `oo ui`: the screen (app.py), its dialogs (screens.py), what it asks Ona
+                 # for (ops.py), where ssh opens (handoff.py), and what it tracks (model.py)
 docs/
 └── claude-desktop.md  # why `oo claude` needs its SSH workaround, and how to undo it
 ```

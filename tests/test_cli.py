@@ -501,56 +501,6 @@ def test_new_complains_about_unknown_classes(calls):
 
 
 CREATE = ("environment", "create", "p-1", "--class-id", "c-fr")
-CHECK_OUT = (
-    "environment",
-    "exec",
-    "99999999-new",
-    "--timeout",
-    "600",
-    "--working-dir",
-    "/workspaces/widgets",
-    "--",
-    "sh",
-    "-c",
-    cli.CHECK_OUT,
-    "sh",
-    "pr-123-branch",
-)
-
-
-@pytest.mark.parametrize("flag", ["-b", "--branch"])
-def test_new_branch_checks_out_before_connecting(calls, flag):
-    result = oo("new", flag, "pr-123-branch")
-    assert isinstance(result.exception, Called)
-    assert "Checking out" in result.output
-    assert calls == [CREATE, CHECK_OUT, ("environment", "ssh", "99999999-new")]
-
-
-def test_new_carries_on_when_the_checkout_fails(calls, monkeypatch):
-    fake = ona.quietly
-
-    def quietly(*args, failed, on_tick=None):
-        if args[:2] == ("environment", "exec"):
-            calls.append(args)
-            raise OnaError(failed, detail="invalid reference: pr-123-branch")
-        return fake(*args, failed=failed, on_tick=on_tick)
-
-    monkeypatch.setattr(ona, "quietly", quietly)
-    result = oo("new", "-b", "pr-123-branch")
-    assert isinstance(result.exception, Called)
-    assert "Ona couldn't check out pr-123-branch." in result.output
-    assert "invalid reference" in result.output
-    assert calls == [CREATE, CHECK_OUT, ("environment", "ssh", "99999999-new")]
-
-
-@pytest.mark.parametrize("branch", ["", "-x", "a b"])
-def test_new_refuses_bad_branches_before_creating(calls, branch):
-    result = oo("new", "-b", branch)
-    assert result.exit_code == 1
-    assert "can't be a branch name" in result.output
-    assert calls == []
-
-
 NEW_LINK = (
     "claude://code/new?ssh_host=99999999-new.ona.environment&ssh_folder=%2Fworkspaces%2Fwidgets"
 )
@@ -653,6 +603,67 @@ def test_new_carries_on_when_the_claude_app_wont_open(calls, monkeypatch):
     result = oo("new", "-t", "claude", "-t", "ssh")
     assert "Couldn't open the Claude desktop app." in result.output
     assert calls == [CREATE, ("environment", "ssh", "99999999-new")]
+
+
+CHECK_OUT = (
+    "environment",
+    "exec",
+    "99999999-new",
+    "--timeout",
+    "600",
+    "--working-dir",
+    "/workspaces/widgets",
+    "--",
+    "sh",
+    "-c",
+    cli.CHECK_OUT,
+    "sh",
+    "pr-123-branch",
+)
+
+
+def test_new_branch_checks_it_out_even_with_then_none(calls):
+    result = oo("new", "-b", "pr-123-branch", "-t", "none")
+    assert result.exit_code == 0
+    assert "Checking out" in result.output
+    assert calls == [CREATE, CHECK_OUT]
+
+
+def test_new_branch_checks_out_before_the_then_steps(calls, monkeypatch):
+    monkeypatch.delenv("OO_EDITOR", raising=False)
+    result = oo("new", "--branch", "pr-123-branch", "-t", "code,ssh")
+    assert isinstance(result.exception, Called)
+    assert calls == [
+        CREATE,
+        CHECK_OUT,
+        ("environment", "open", "99999999-new"),
+        ("environment", "ssh", "99999999-new"),
+    ]
+
+
+def test_new_carries_on_when_the_checkout_fails(calls, monkeypatch):
+    fake = ona.quietly
+
+    def quietly(*args, failed, on_tick=None):
+        if args[:2] == ("environment", "exec"):
+            calls.append(args)
+            raise OnaError(failed, detail="invalid reference: pr-123-branch")
+        return fake(*args, failed=failed, on_tick=on_tick)
+
+    monkeypatch.setattr(ona, "quietly", quietly)
+    result = oo("new", "-b", "pr-123-branch")
+    assert isinstance(result.exception, Called)
+    assert "Ona couldn't check out pr-123-branch." in result.output
+    assert "invalid reference" in result.output
+    assert calls == [CREATE, CHECK_OUT, ("environment", "ssh", "99999999-new")]
+
+
+@pytest.mark.parametrize("branch", ["", "-x", "a b"])
+def test_new_refuses_bad_branches_before_creating(calls, branch):
+    result = oo("new", "-b", branch)
+    assert result.exit_code == 1
+    assert "can't be a branch name" in result.output
+    assert calls == []
 
 
 def test_complete_then_offers_the_steps_after_a_comma():

@@ -16,6 +16,9 @@ from rich.markup import escape
 from .envs import Env
 from .projects import EnvClass, Project
 
+# ona processes `quietly` is running right now, so a long-running caller can kill them on exit.
+LIVE: set[subprocess.Popen[str]] = set()
+
 
 class OnaError(Exception):
     def __init__(self, message: str, detail: str | None = None, hint: str | None = None):
@@ -101,6 +104,7 @@ def quietly(
         stderr=subprocess.STDOUT,
         text=True,
     )
+    LIVE.add(process)
     try:
         while True:
             try:
@@ -113,6 +117,8 @@ def quietly(
         process.kill()
         process.wait()
         raise
+    finally:
+        LIVE.discard(process)
     if process.returncode:
         raise error_from(failed, output or "")
     return time.monotonic() - started, output or ""

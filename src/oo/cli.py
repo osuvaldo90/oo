@@ -257,8 +257,8 @@ EPILOG = (
     "  [cyan]oo cp notes.md login:[/]        copy a file into its repo\n"
     "  [cyan]oo cp login:out.csv .[/]        …or out of it\n"
     "  [cyan]oo new[/]                       create an environment and connect to it\n"
-    "  [cyan]oo new -b pr-9[/]               …check out branch pr-9 first\n"
     "  [cyan]oo new -t code,ssh[/]           …open it in your editor, then connect\n"
+    "  [cyan]oo new -b pr-9 -t code[/]       …check out branch pr-9 first\n"
     "  [cyan]oo stop --all[/]                stop everything that's running\n"
     "  [cyan]ona env logs $(oo id login)[/]  hand an ID to any other ona command\n\n"
     "[bold]Branch prefix[/]\n\n"
@@ -535,16 +535,6 @@ def new(
             show_default=False,
         ),
     ] = None,
-    branch: Annotated[
-        str | None,
-        typer.Option(
-            "--branch",
-            "-b",
-            help="Branch to check out once it's ready, before it connects. "
-            "If the checkout fails, oo warns and carries on.",
-            show_default=False,
-        ),
-    ] = None,
     then: Annotated[
         list[str] | None,
         typer.Option(
@@ -555,6 +545,16 @@ def new(
             "[bold]none[/]. Give more than one, like [bold]-t code -t ssh[/] or "
             "[bold]-t code,ssh[/]; ssh always goes last.",
             autocompletion=_complete_then,
+            show_default=False,
+        ),
+    ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            "-b",
+            help="Branch to check out once it's ready, before the [bold]--then[/] steps. "
+            "If the checkout fails, oo warns and carries on.",
             show_default=False,
         ),
     ] = None,
@@ -637,25 +637,6 @@ def new(
         ona.replace_with("environment", "ssh", created.id)
 
 
-def _open_in_editor(env: Env, editor: str | None, note: str = "") -> None:
-    """Have ona open `env` in your editor, and carry on. Only warns if it can't."""
-    notes = (note, f"in {editor}" if editor else "")
-    render.heading(err, "Opening", env, branch_prefix(), ", ".join(n for n in notes if n))
-    try:
-        with err.status(render.working("Opening your editor…"), spinner_style=render.ACCENT):
-            ona.quietly(
-                "environment",
-                "open",
-                env.id,
-                *(["--editor", editor] if editor else []),
-                failed="Ona couldn't open your editor.",
-            )
-    except OnaError as e:
-        render.warning(err, str(e), detail=e.detail)
-    except KeyboardInterrupt:
-        _cancelled()
-
-
 # Fetch the branch by name, so it works on shallow and single-branch clones too, then switch to
 # it. The branch comes in as $1 rather than in the script, so it needs no quoting.
 CHECK_OUT = 'git fetch origin "$1:refs/remotes/origin/$1" && git switch "$1"'
@@ -689,6 +670,25 @@ def _check_out(env: Env, branch: str, note: str = "") -> None:
                 "sh",
                 branch,
                 failed=f"Ona couldn't check out {branch}.",
+            )
+    except OnaError as e:
+        render.warning(err, str(e), detail=e.detail)
+    except KeyboardInterrupt:
+        _cancelled()
+
+
+def _open_in_editor(env: Env, editor: str | None, note: str = "") -> None:
+    """Have ona open `env` in your editor, and carry on. Only warns if it can't."""
+    notes = (note, f"in {editor}" if editor else "")
+    render.heading(err, "Opening", env, branch_prefix(), ", ".join(n for n in notes if n))
+    try:
+        with err.status(render.working("Opening your editor…"), spinner_style=render.ACCENT):
+            ona.quietly(
+                "environment",
+                "open",
+                env.id,
+                *(["--editor", editor] if editor else []),
+                failed="Ona couldn't open your editor.",
             )
     except OnaError as e:
         render.warning(err, str(e), detail=e.detail)
@@ -818,6 +818,17 @@ def remove(branches: Branches, wait: Wait = False) -> None:
 def id_(branch: Branch) -> None:
     """Print an environment's ID, to hand to other ona commands."""
     print(_find(_load(), branch).id)
+
+
+@app.command("ui")
+def ui() -> None:
+    """Keep the list on screen and act on it with one key each.
+
+    Needs oo's [bold]ui[/] extra, which brings in Textual.
+    """
+    from . import ui as screen
+
+    raise typer.Exit(screen.run())
 
 
 # Longhand spellings, for muscle memory from ona and friends.
