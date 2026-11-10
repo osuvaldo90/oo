@@ -33,6 +33,11 @@ Issues = "https://github.com/adamtrain/oo/issues"
 [project.scripts]
 oo = "oo.cli:main"
 
+[project.optional-dependencies]
+ui = [
+    "textual>=8.2,<9",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.15,<0.13.0"]
 build-backend = "uv_build"
@@ -41,6 +46,7 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.8",
+    "textual>=8.2,<9",
     "ty>=0.0.83",
 ]
 

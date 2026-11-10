@@ -734,6 +734,17 @@ def id_(branch: Branch) -> None:
     print(_find(_load(), branch).id)
 
 
+@app.command("ui")
+def ui() -> None:
+    """Keep the list on screen and act on it with one key each.
+
+    Needs oo's [bold]ui[/] extra, which brings in Textual.
+    """
+    from . import ui as screen
+
+    raise typer.Exit(screen.run())
+
+
 # Longhand spellings, for muscle memory from ona and friends.
 app.command("ssh", hidden=True)(connect)
 app.command("list", hidden=True)(ls)
